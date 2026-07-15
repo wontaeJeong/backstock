@@ -1,0 +1,13 @@
+{
+  "name": "backstock",
+  "private": true,
+  "packageManager": "pnpm@11.1.2",
+  "scripts": {
+    "dev": "pnpm --filter @backstock/web dev",
+    "build": "pnpm --filter @backstock/web build",
+    "lint": "pnpm --filter @backstock/web lint",
+    "typecheck": "pnpm --filter @backstock/web typecheck",
+    "test": "pnpm --filter @backstock/web test",
+    "doctor": "pnpm --filter @backstock/web doctor"
+  }
+}

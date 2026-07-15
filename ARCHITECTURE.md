@@ -2,7 +2,7 @@
 
 ## 현재 상태
 
-현재 저장소에는 기준 문서만 있으며 아래 구조와 흐름은 2단계 이후 구축할 목표 아키텍처다. 실행 코드나 배포 구성이 이미 존재한다는 의미가 아니다.
+Python 3.12 `uv` project, FastAPI adapter, worker entrypoint, Next.js web, Alembic migration, PostgreSQL과 Docker Compose 실행 기반이 구축되어 있다. Domain/application과 기능 package는 framework 독립 Python package로 확장한다.
 
 ## 개요
 
@@ -19,7 +19,7 @@ MCP -> Application Services
 External Providers/Brokers -> Adapters
 ```
 
-## 목표 구조
+## 구현 구조
 
 ```text
 apps/api
@@ -37,6 +37,8 @@ packages/shared
 infra
 docs
 ```
+
+Python import 방향은 `apps -> packages/application -> packages/domain`이다. `packages/shared`는 설정·로그처럼 계산 규칙이 아닌 공통 운영 계약만 제공한다. `apps/api`의 SQLAlchemy 모델은 persistence adapter이며 domain 모델이 아니다.
 
 ## 경계
 

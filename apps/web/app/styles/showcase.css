@@ -1,0 +1,95 @@
+.showcase {
+  display: grid;
+  gap: var(--space-6);
+  inline-size: 100%;
+  max-inline-size: var(--showcase-max);
+  margin-inline: auto;
+  overflow-x: hidden;
+}
+
+.showcase-grid,
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
+  gap: var(--space-4);
+}
+
+.action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(13rem, 100%), 1fr));
+  gap: var(--space-3);
+}
+
+.component-cluster {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-3);
+}
+
+.empty-state,
+.error-state {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-2);
+  color: var(--text-secondary);
+  text-wrap: pretty;
+}
+
+.no-break {
+  white-space: nowrap;
+}
+
+.empty-state strong {
+  color: var(--text-primary);
+}
+
+.empty-state > *,
+.error-state > * {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+
+.error-state strong {
+  color: var(--status-error);
+}
+
+.flow-list {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding-inline-start: var(--space-6);
+  color: var(--text-secondary);
+  font-family: "Fira Code", monospace;
+}
+
+@media (max-width: 63.99rem) {
+  .showcase-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 39.99rem) {
+  .foundation-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .status-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .status-grid .status-badge {
+    justify-content: flex-start;
+  }
+
+  .status-grid .status-badge:last-child {
+    grid-column: auto;
+    justify-self: stretch;
+  }
+
+  .action-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -17,13 +17,27 @@
 - mock/paper broker
 - KIS 및 MCP 확장 경계
 
-## 빠른 시작 목표
-
-구현 완료 후 실제 명령으로 검증하고 갱신한다.
+## 빠른 시작
 
 ```bash
 cp .env.example .env
 docker compose up --build
+```
+
+API는 `http://localhost:8000`, Web은 `http://localhost:3000`에서 실행된다. 확인:
+
+```bash
+curl http://localhost:8000/health/live
+curl http://localhost:8000/health/ready
+```
+
+호스트에서 검증하려면 Python 3.12, `uv`, Node.js 24, `pnpm` 11이 필요하다.
+
+```bash
+uv sync
+pnpm install
+uv run pytest
+pnpm test
 ```
 
 ## 데이터 주의

@@ -7,8 +7,10 @@ __pycache__/
 .ruff_cache/
 node_modules/
 .next/
+*.tsbuildinfo
 coverage/
 dist/
 var/
 playwright-report/
 test-results/
+.playwright-mcp/

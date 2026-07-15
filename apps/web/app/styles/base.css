@@ -1,0 +1,77 @@
+* {
+  box-sizing: border-box;
+}
+
+html {
+  block-size: 100%;
+  overflow: clip;
+  background: var(--surface-canvas);
+}
+
+body {
+  block-size: 100dvb;
+  margin: 0;
+  overflow: clip;
+  background:
+    linear-gradient(
+      90deg,
+      transparent 0,
+      transparent 49.9%,
+      color-mix(in srgb, var(--accent-primary) 3%, transparent) 50%,
+      transparent 50.1%
+    ),
+    var(--surface-canvas);
+  color: var(--text-primary);
+  font-family: "Fira Sans", sans-serif;
+  font-size: var(--type-body);
+  line-height: 1.55;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+.skip-link {
+  position: fixed;
+  inset-block-start: var(--space-3);
+  inset-inline-start: var(--space-3);
+  z-index: 20;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--accent-primary);
+  color: var(--accent-ink);
+  transform: translateY(-200%);
+  transition: transform var(--motion-standard);
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+.visually-hidden {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+:lang(ko) {
+  word-break: keep-all;
+}

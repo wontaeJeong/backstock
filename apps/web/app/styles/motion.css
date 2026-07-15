@@ -1,0 +1,33 @@
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+    scroll-behavior: auto;
+    transition-duration: 0.01ms;
+  }
+
+  .action-button:hover,
+  .action-button:active {
+    transform: none;
+  }
+
+  .action-button,
+  .sidebar nav a,
+  .skip-link {
+    transition: none;
+  }
+
+  .loading-indicator {
+    animation: none;
+  }
+
+  .skip-link {
+    transform: translateY(-200%);
+  }
+
+  .skip-link:focus {
+    transform: translateY(0);
+  }
+}

@@ -4,10 +4,11 @@
 
 ## 현재 구현
 
-- Git 저장소와 단일 `README.md` 초기 커밋만 존재한다.
-- 제품, 아키텍처, 정확성, 데이터 공급자, DSL, broker, MCP, 보안 기준 문서와 단계별 작업 프롬프트가 작성되어 있다.
-- 실행 가능한 Python/TypeScript 소스, 패키지 manifest, 테스트, CI, Docker, 데이터베이스 migration은 없다.
-- `.env.example`은 목표 설정 경계를 설명하지만 아직 이를 읽는 애플리케이션은 없다.
+- Python 3.12 `uv` project와 Next.js `pnpm` workspace가 있다.
+- FastAPI live/ready health, 공통 error contract, request id, JSON request log가 동작한다.
+- Worker entrypoint, PostgreSQL 17 Compose service, 초기 Alembic migration이 있다.
+- Web bootstrap과 디자인 시스템 primitive showcase가 있다.
+- GitHub Actions가 backend lint/type/test/migration SQL과 frontend lint/type/test/build를 검증한다.
 
 ## 재사용 가능 요소
 
@@ -19,9 +20,9 @@
 
 ## 누락 기능
 
-- Python workspace, FastAPI API, worker와 공통 domain/application package
-- Next.js 웹 애플리케이션과 API client
-- PostgreSQL schema와 migration
+- 실제 market data, strategy, backtest, risk, broker application service
+- Web의 typed API client와 제품 화면
+- 리소스별 PostgreSQL schema와 repository
 - market data provider, 정규화, 품질 검사, immutable snapshot 저장
 - strategy DSL, indicator, backtest/risk/broker engine
 - analytics, paper approval, KIS adapter, MCP server

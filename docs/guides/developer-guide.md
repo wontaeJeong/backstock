@@ -1,6 +1,6 @@
 # Developer Guide
 
-## 시작 목표
+## 시작
 
 ```bash
 uv sync
@@ -8,7 +8,20 @@ pnpm install
 docker compose up --build
 ```
 
-구현 후 실제 명령으로 갱신한다.
+`uv run uvicorn apps.api.app:app --reload`로 API만, `pnpm dev`로 Web만 실행할 수 있다. Migration SQL은 `uv run alembic upgrade head --sql`로 확인하고 PostgreSQL 적용은 `uv run alembic upgrade head`로 수행한다.
+
+## 검증
+
+```bash
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy .
+uv run pytest
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+```
 
 ## 개발 순서
 domain model → pure test → application service → adapter → API → Web → integration/E2E → docs.

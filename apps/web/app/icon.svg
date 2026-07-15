@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>Stock Strategy Lab</title>
+  <rect width="64" height="64" rx="12" fill="#10151c"/>
+  <circle cx="32" cy="32" r="20" fill="none" stroke="#47c7d9" stroke-width="6"/>
+  <path d="M12 32h40" stroke="#47c7d9" stroke-width="4"/>
+</svg>
