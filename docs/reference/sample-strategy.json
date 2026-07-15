@@ -1,0 +1,37 @@
+{
+  "schema_version": "1",
+  "name": "ma-cross-with-risk",
+  "universe": ["KRX:005930"],
+  "timeframe": "1d",
+  "entry": {
+    "all": [
+      {
+        "crosses_above": [
+          {"indicator": "sma", "field": "close", "period": 20},
+          {"indicator": "sma", "field": "close", "period": 60}
+        ]
+      },
+      {
+        "gt": [
+          {"indicator": "volume_ratio", "period": 20},
+          1.5
+        ]
+      }
+    ]
+  },
+  "exit": {
+    "any": [
+      {"stop_loss_pct": 5},
+      {"take_profit_pct": 12},
+      {"trailing_stop_pct": 4}
+    ]
+  },
+  "position_sizing": {
+    "type": "percent_of_equity",
+    "value": 20
+  },
+  "order": {
+    "entry_type": "market",
+    "execution": "next_open"
+  }
+}
