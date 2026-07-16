@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import ClassVar, Final
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -13,7 +14,10 @@ class Settings(BaseSettings):
 
     app_env: str = "development"
     database_url: str = DEFAULT_DATABASE_URL
+    data_storage_path: Path = Path("var/data")
     log_level: str = "INFO"
+    market_data_default_provider: str = "yfinance"
+    yfinance_cache_path: Path = Path("var/cache/yfinance")
     broker_mode: str = "paper"
     broker_production_enabled: bool = False
     mcp_enabled: bool = False

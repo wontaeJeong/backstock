@@ -59,6 +59,10 @@ Snapshot + StrategyVersion + Config -> Worker -> Engine -> Result
 Signal -> OrderIntent -> Risk -> ProposedOrder -> Approval -> Broker
 ```
 
+Market data domain 모델은 `packages/domain`에 있고 공급자 protocol과 adapter는
+`packages/market_data`에 있다. adapter는 외부 payload를 immutable raw artifact와 metadata sidecar로
+먼저 보존한 뒤 정규화한다. API와 backtest는 provider SDK를 직접 호출하지 않는다.
+
 ## 저장
 
 PostgreSQL에는 instrument, mapping, manifest, strategy version, run, summary, order/fill, audit를 저장한다. Parquet/object storage에는 bars와 대규모 시계열·이벤트를 저장한다.
