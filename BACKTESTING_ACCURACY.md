@@ -23,7 +23,8 @@
 
 split, reverse split, dividend를 명시적으로 처리한다. 공급자 보정과 내부 보정을 중복 적용하지 않는다. 가격·volume 보정의 일관성을 검사한다.
 
-yfinance `auto_adjust=True`는 OHLC만 소급 보정하고 volume을 raw로 유지한다. 두 adjustment 의미와
+yfinance `auto_adjust=True`는 `TOTAL_RETURN_ADJUSTED` OHLC만 소급 보정하고 volume을 `RAW`로 유지한다.
+`SPLIT_ADJUSTED`와 혼동하거나 모호한 `ADJUSTED` label로 게시하지 않는다. 두 adjustment 의미와
 취득 시점을 별도 metadata로 기록하며 소급 보정 값을 point-in-time 데이터로 취급하지 않는다.
 
 ## 비용

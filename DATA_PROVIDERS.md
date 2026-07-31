@@ -40,7 +40,9 @@ MVP 기본 원격 공급자다.
 - fetched_at
 - raw checksum
 
-`RAW`는 `auto_adjust=False`, `ADJUSTED`는 `auto_adjust=True`로 요청한다. yfinance의 `ADJUSTED`는
+`RAW`는 `auto_adjust=False`, `TOTAL_RETURN_ADJUSTED`는 `auto_adjust=True`로 요청한다.
+yfinance는 split-only 보정 의미를 보장하지 않으므로 `SPLIT_ADJUSTED` 요청을 명시적으로 거부한다.
+`TOTAL_RETURN_ADJUSTED`는
 가격 OHLC만 소급 보정하고 volume은 raw share count로 유지하므로 `Bar.price_adjustment`와
 `Bar.volume_adjustment`를 별도로 기록한다. 소급 보정 가격은 취득 시점 기준 결과이며 point-in-time
 historical value가 아니다. 현재 yfinance가
@@ -64,7 +66,8 @@ CSV/Parquet를 읽으며 fixture와 재현성의 기준이다.
 
 권장 컬럼: `instrument, exchange, currency, adjusted_close, source, timezone`
 
-파일을 등록할 때 instrument, 가격과 volume 각각의 `RAW`/`ADJUSTED` 의미를 명시해야 한다. 요청 의미가 등록 값과
+파일을 등록할 때 instrument, 가격과 volume 각각의 `RAW`/`SPLIT_ADJUSTED`/
+`TOTAL_RETURN_ADJUSTED` 의미를 명시해야 한다. 요청 의미가 등록 값과
 다르면 거부한다. CSV와 Parquet 모두 원본 파일 bytes를 보존하고 Polars로 정규화한다.
 
 ## FinanceDataReaderProvider
@@ -88,8 +91,10 @@ base64 deterministic JSON envelope로 먼저 저장한 뒤 3-column listing sche
 - 실패 시 silent fallback 금지
 - request cache와 immutable raw artifact 분리
 - raw payload와 provider/version/request/fetched_at/media type/checksum sidecar 함께 저장
-- `RAW`, `ADJUSTED`를 요청과 결과에 명시
+- 가격과 volume에 `RAW`, `SPLIT_ADJUSTED`, `TOTAL_RETURN_ADJUSTED` 중 하나를 각각 명시
 - 공급자 간 차이는 validation job으로 보고하며 자동 병합 금지
+- corporate action으로 bar를 검증하는 adapter는 같은 raw acquisition에 둘을 묶고 lineage checksum이
+  다르면 snapshot을 게시하지 않음
 
 sidecar 전체는 artifact ID로 integrity binding하며 request option은 immutable tuple로 보존한다. 동일 요청
 cache는 TTL 동안 immutable raw artifact를 참조하고 atomic replace로 게시한다. 손상된 cache는 miss로 처리한다.
@@ -99,4 +104,18 @@ cache는 TTL 동안 immutable raw artifact를 참조하고 atomic replace로 게
 instrument identity는 canonical `instrument_id`와 provider symbol을 분리한다. DB mapping은
 `provider + provider_symbol + valid_from`을 key로 사용하여 symbol 재사용과 매핑 변경 이력을 덮어쓰지 않는다.
 PostgreSQL exclusion constraint는 같은 provider symbol 또는 같은 provider instrument의 유효 기간 중첩을 막는다.
-normalized snapshot manifest와 품질 상태는 Prompt 04 범위다.
+## 품질 검사와 snapshot
+
+정규화된 bar는 순서를 바꾸거나 누락 값을 채우기 전에 순수 validator를 통과한다. 중복·역순 timestamp,
+timezone 추론 provenance, 0 이하 가격, OHLC 범위, 음수 volume, 빈 데이터, 요청 범위 이탈과 Parquet
+decimal 38자리로 lossless 저장할 수 없는 가격은 오류다. calendar가 있으면 누락 구간/초과 거래일을,
+corporate action이 있으면 split/dividend에 따른 가격·volume
+일관성을 검사한다. calendar가 없으면 거래일을 추측하지 않고 `no_exchange_calendar` 경고를 남긴다.
+종가 간 50% 초과 변화와 provider 간 같은 timestamp 종가 1% 초과 차이는 경고이며 자동 병합하지 않는다.
+
+유효한 결과만 deterministic Parquet로 content-addressed `normalized/` 영역에 게시한다. write-once JSON
+manifest는 `snapshots/` 영역에 분리하고 raw/normalized checksum, 취득 시점, provider/query/symbol,
+가격·volume adjustment, 품질 상태와 경고를 기록한다. 같은 provider 결과는 같은 snapshot을 재사용하고
+새 취득 시점의 갱신은 새 snapshot id를 만든다. manifest URI는 `snapshot://` logical key라 storage root를
+옮겨도 identity가 바뀌지 않으며 실제 filesystem 경로는 API에 노출하지 않는다. 어떤 단계에서도
+forward-fill하지 않는다.

@@ -2,7 +2,9 @@
 
 ## 현재 상태
 
-Python 3.12 `uv` project, FastAPI adapter, worker entrypoint, Next.js web, Alembic migration, PostgreSQL과 Docker Compose 실행 기반이 구축되어 있다. Domain/application과 기능 package는 framework 독립 Python package로 확장한다.
+Python 3.12 `uv` project, FastAPI adapter, worker entrypoint, Next.js web, Alembic migration,
+PostgreSQL과 Docker Compose 실행 기반이 구축되어 있다. market data provider, 순수 품질 검사,
+immutable Parquet snapshot과 bounded `/datasets` API가 구현되어 있다.
 
 ## 개요
 
@@ -60,12 +62,25 @@ Signal -> OrderIntent -> Risk -> ProposedOrder -> Approval -> Broker
 ```
 
 Market data domain 모델은 `packages/domain`에 있고 공급자 protocol과 adapter는
-`packages/market_data`에 있다. adapter는 외부 payload를 immutable raw artifact와 metadata sidecar로
-먼저 보존한 뒤 정규화한다. API와 backtest는 provider SDK를 직접 호출하지 않는다.
+`packages/market_data`에 있다. remote provider adapter는 외부 응답을 immutable raw artifact와 metadata
+sidecar로 먼저 보존한 뒤 정규화한다. untrusted local upload는 bounded temporary file에서 schema/resource
+검사를 통과한 뒤에만 raw artifact로 승격한다. API와 backtest는 provider SDK를 직접 호출하지 않는다.
+
+정규화는 provider 순서와 naive-timezone 추론 provenance를 보존한다. application의
+`DatasetSnapshotService`가 provider 결과를 validator에 전달하고, 오류가 없을 때만 content-addressed
+normalized Parquet와 write-once manifest를 게시한다. API는 이 use case만 호출한다. provider 간 비교는
+경고 report만 만들고 데이터를 합치지 않는다.
 
 ## 저장
 
-PostgreSQL에는 instrument, mapping, manifest, strategy version, run, summary, order/fill, audit를 저장한다. Parquet/object storage에는 bars와 대규모 시계열·이벤트를 저장한다.
+PostgreSQL에는 instrument와 mapping을 저장한다. Prompt 08에서 manifest, strategy version, run, summary,
+order/fill, audit repository를 같은 transaction 경계에 추가한다. Parquet/object storage에는 bars와 대규모
+시계열·이벤트를 저장한다.
+
+현재 snapshot의 authoritative metadata는 write-once filesystem manifest다. URI는 storage root와 무관한
+`snapshot://` logical key이고 adapter 내부에서만 실제 경로로 해석한다. 파일 저장은 `raw/`, `normalized/`,
+`snapshots/` 영역을 분리한다. Prompt 08의 DB 등록은 동일 snapshot id/checksum 충돌을 거부하고
+BacktestRun 생성과 함께 immutable reference를 고정해야 한다.
 
 ## Job 상태
 

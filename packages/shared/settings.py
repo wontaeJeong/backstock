@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     app_env: str = "development"
     database_url: str = DEFAULT_DATABASE_URL
     data_storage_path: Path = Path("var/data")
+    dataset_upload_max_bytes: int = 25 * 1024 * 1024
+    dataset_upload_max_rows: int = 1_000_000
+    dataset_upload_max_columns: int = 32
     log_level: str = "INFO"
     market_data_default_provider: str = "yfinance"
     yfinance_cache_path: Path = Path("var/cache/yfinance")

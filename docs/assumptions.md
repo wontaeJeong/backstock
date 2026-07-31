@@ -33,3 +33,22 @@ Affected modules:
 Migration:
 Validation:
 ```
+
+## 2026-07-31 데이터 품질과 snapshot
+
+- 일봉 close-to-close 절대 변화가 50%를 넘으면 비정상 변화 경고다. corporate action 검사는 별도로 수행한다.
+- 같은 timestamp의 provider close가 1%를 초과해 다르면 교차 검증 경고이며 어느 쪽도 자동 선택하거나 병합하지 않는다.
+- 거래소 calendar가 없으면 주말/휴장일을 추측하지 않고 `no_exchange_calendar`를 기록한다. calendar가 제공된 경우에만 누락/초과 session을 판정한다.
+- naive source timestamp는 instrument IANA timezone으로 정규화하되 provenance와 warning을 남긴다.
+- yfinance `auto_adjust=True` 결과는 `TOTAL_RETURN_ADJUSTED` 가격과 `RAW` volume으로 기록한다. split-only 의미는 지원한다고 주장하지 않는다.
+- snapshot id는 provider/version/acquired_at/query/range/raw checksum/normalized checksum/schema version에 묶는다. 같은 취득 결과 재게시는 idempotent하고 새 취득은 새 id다.
+- snapshot manifest는 storage root를 노출하지 않는 `snapshot://` logical URI를 사용하며 다른 root로
+  복원해도 같은 identity를 유지한다.
+- 가격 Decimal은 데이터셋의 canonical scale을 계산해 Parquet decimal(precision 38)에 lossless 저장한다.
+  공통 scale과 정수부가 38자리를 넘으면 publish하지 않는다.
+- upload body는 기본 25 MiB, Parquet는 기본 1,000,000 rows/32 columns로 제한한다. invalid schema나
+  resource limit 위반 upload는 immutable raw artifact로 승격하지 않는다.
+- 사용자 identity가 없는 현재 단계에서 dataset별 authz/rate limit을 가장하지 않는다. 공개 배포 전
+  ingress 또는 Prompt 08 security slice가 이를 강제해야 한다.
+- filesystem manifest가 현재 snapshot metadata의 authority다. PostgreSQL 등록과 BacktestRun의
+  snapshot id/checksum 고정 transaction은 Prompt 08에서 함께 구현한다.

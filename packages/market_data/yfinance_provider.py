@@ -19,7 +19,11 @@ from packages.domain.market_data import (
     ProviderCapabilities,
 )
 from packages.market_data.errors import MarketDataError, ProviderErrorCategory
-from packages.market_data.normalization import actions_from_yahoo_csv, bars_from_csv
+from packages.market_data.normalization import (
+    BarNormalization,
+    actions_from_yahoo_csv,
+    bars_from_csv,
+)
 from packages.market_data.provider_support import lineage, not_supported
 from packages.market_data.raw_store import (
     FileRawStore,
@@ -110,10 +114,12 @@ class YFinanceProvider:
         artifact = self._artifact(request)
         bars = bars_from_csv(
             artifact.payload_path.read_bytes(),
-            instrument=request.instrument,
-            price_adjustment=request.adjustment,
-            volume_adjustment=AdjustmentMode.RAW,
-            provider=self.name,
+            normalization=BarNormalization(
+                instrument=request.instrument,
+                price_adjustment=request.adjustment,
+                volume_adjustment=AdjustmentMode.RAW,
+                provider=self.name,
+            ),
         )
         start = request.start.astimezone(UTC)
         end = request.end.astimezone(UTC)
@@ -161,7 +167,7 @@ class YFinanceProvider:
                     symbol=provider_symbol,
                     start=request.start,
                     end=request.end,
-                    auto_adjust=request.adjustment.value == "adjusted",
+                    auto_adjust=self._auto_adjust(request.adjustment),
                 )
             except MarketDataError:
                 raise
@@ -214,3 +220,18 @@ class YFinanceProvider:
             "adjustment_vintage": "retrospective_at_acquisition",
             "actions": True,
         }
+
+    @staticmethod
+    def _auto_adjust(adjustment: AdjustmentMode) -> bool:
+        match adjustment:
+            case AdjustmentMode.RAW:
+                return False
+            case AdjustmentMode.TOTAL_RETURN_ADJUSTED:
+                return True
+            case AdjustmentMode.SPLIT_ADJUSTED:
+                raise MarketDataError(
+                    provider=YFinanceProvider.name,
+                    category=ProviderErrorCategory.INVALID_REQUEST,
+                    message="yfinance does not expose unambiguous split-only adjusted history",
+                    retryable=False,
+                )

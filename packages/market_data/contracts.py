@@ -1,4 +1,4 @@
-from typing import Protocol
+from typing import ClassVar, Protocol
 
 from packages.domain.market_data import (
     Bar,
@@ -14,8 +14,7 @@ from packages.domain.market_data import (
 
 
 class MarketDataProvider(Protocol):
-    @property
-    def name(self) -> str: ...
+    name: ClassVar[str]
 
     @property
     def capabilities(self) -> ProviderCapabilities: ...

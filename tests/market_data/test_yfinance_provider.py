@@ -125,15 +125,29 @@ def test_yahoo_adjusted_mode_is_forwarded_to_upstream(tmp_path: Path) -> None:
         symbol_resolver=resolver(),
     )
 
-    result = provider.get_bars(request(AdjustmentMode.ADJUSTED))
+    result = provider.get_bars(request(AdjustmentMode.TOTAL_RETURN_ADJUSTED))
 
     assert client.calls[0][3] is True
     assert result.items[0].close == Decimal("184.73")
-    assert result.items[0].price_adjustment is AdjustmentMode.ADJUSTED
+    assert result.items[0].price_adjustment is AdjustmentMode.TOTAL_RETURN_ADJUSTED
     assert result.items[0].volume_adjustment is AdjustmentMode.RAW
     assert dict(result.lineage.request_options)["adjustment_vintage"] == (
         "retrospective_at_acquisition"
     )
+
+
+def test_yahoo_rejects_ambiguous_split_only_adjustment(tmp_path: Path) -> None:
+    # Given
+    provider = YFinanceProvider(
+        client=FixtureYahooClient(),
+        raw_store=FileRawStore(tmp_path / "raw"),
+        symbol_resolver=resolver(),
+    )
+
+    # When / Then
+    with pytest.raises(MarketDataError) as captured:
+        _ = provider.get_bars(request(AdjustmentMode.SPLIT_ADJUSTED))
+    assert captured.value.category is ProviderErrorCategory.INVALID_REQUEST
 
 
 def test_yahoo_unknown_provider_failure_is_not_retried(tmp_path: Path) -> None:

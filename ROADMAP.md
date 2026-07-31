@@ -2,8 +2,8 @@
 
 1. **완료 — 기준 문서와 진단**: PRD, ADR, 위험, 가정, 저장소 현황
 2. **완료 — 개발 기반**: Python/Next.js, API/Web/Worker/DB, Compose, CI
-3. **다음 — 시장 데이터**: YFinance/Local provider, symbol, 품질, snapshot
-4. **백테스트 엔진**: event clock, order/fill, ledger, 비용, golden tests
+3. **완료 — 시장 데이터**: YFinance/Local provider, symbol, 품질, snapshot
+4. **다음 — 백테스트 엔진**: event clock, order/fill, ledger, 비용, golden tests
 5. **전략 DSL**: schema, indicator, entry/exit, sizing, version
 6. **웹 MVP**: 데이터, 전략, 실행, 결과, E2E
 7. **분석**: 성과·위험, benchmark, 비교, 비용 민감도

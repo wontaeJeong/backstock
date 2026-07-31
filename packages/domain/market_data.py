@@ -8,9 +8,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 INVALID_TIMEZONE: Final = "timezone must be a valid IANA name"
 UNAWARE_TIMESTAMP: Final = "timestamp must be timezone-aware"
-NEGATIVE_PRICE: Final = "prices must be non-negative"
-INVALID_HIGH: Final = "high must be the greatest price"
-INVALID_LOW: Final = "low must be the least price"
 UNAWARE_ACTION: Final = "effective_at must be timezone-aware"
 UNAWARE_BOUND: Final = "request bounds must be timezone-aware"
 EMPTY_INTERVAL: Final = "end must be after start"
@@ -20,7 +17,13 @@ INVALID_SESSION: Final = "session close must be after open"
 
 class AdjustmentMode(StrEnum):
     RAW = "raw"
-    ADJUSTED = "adjusted"
+    SPLIT_ADJUSTED = "split_adjusted"
+    TOTAL_RETURN_ADJUSTED = "total_return_adjusted"
+
+
+class TimestampProvenance(StrEnum):
+    EXPLICIT_OFFSET = "explicit_offset"
+    INFERRED_FROM_INSTRUMENT = "inferred_from_instrument"
 
 
 class CorporateActionKind(StrEnum):
@@ -57,9 +60,10 @@ class Bar(_FrozenModel):
     high: Decimal
     low: Decimal
     close: Decimal
-    volume: int = Field(ge=0)
+    volume: int
     price_adjustment: AdjustmentMode
     volume_adjustment: AdjustmentMode
+    timestamp_provenance: TimestampProvenance = TimestampProvenance.EXPLICIT_OFFSET
 
     @field_validator("timestamp")
     @classmethod
@@ -67,16 +71,6 @@ class Bar(_FrozenModel):
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError(UNAWARE_TIMESTAMP)
         return value
-
-    @model_validator(mode="after")
-    def prices_must_form_a_valid_bar(self) -> "Bar":
-        if min(self.open, self.high, self.low, self.close) < 0:
-            raise ValueError(NEGATIVE_PRICE)
-        if self.high < max(self.open, self.low, self.close):
-            raise ValueError(INVALID_HIGH)
-        if self.low > min(self.open, self.high, self.close):
-            raise ValueError(INVALID_LOW)
-        return self
 
 
 class CorporateAction(_FrozenModel):
@@ -167,3 +161,44 @@ class DataLineage(_FrozenModel):
 class MarketDataResult[ItemT: BaseModel](_FrozenModel):
     items: tuple[ItemT, ...]
     lineage: DataLineage
+
+
+def corporate_actions_are_consistent(
+    bars: tuple[Bar, ...], actions: tuple[CorporateAction, ...]
+) -> bool:
+    ordered = sorted(bars, key=lambda bar: bar.timestamp)
+    for action in actions:
+        location = next(
+            (index for index, bar in enumerate(ordered) if bar.timestamp >= action.effective_at),
+            None,
+        )
+        if location is None or location == 0:
+            continue
+        if not _action_is_consistent(ordered[location - 1], ordered[location], action):
+            return False
+    return True
+
+
+def _action_is_consistent(previous: Bar, current: Bar, action: CorporateAction) -> bool:
+    if previous.close <= 0 or current.close <= 0:
+        return False
+    match action.kind:
+        case CorporateActionKind.SPLIT:
+            expected_price_ratio = (
+                Decimal(1) / action.value
+                if current.price_adjustment is AdjustmentMode.RAW
+                else Decimal(1)
+            )
+            price_ok = abs(current.close / previous.close - expected_price_ratio) <= Decimal("0.25")
+            expected_volume_ratio = (
+                action.value if current.volume_adjustment is AdjustmentMode.RAW else Decimal(1)
+            )
+            volume_ok = previous.volume == 0 or abs(
+                Decimal(current.volume) / previous.volume - expected_volume_ratio
+            ) <= Decimal("0.50")
+            return price_ok and volume_ok
+        case CorporateActionKind.CASH_DIVIDEND:
+            if current.price_adjustment is AdjustmentMode.TOTAL_RETURN_ADJUSTED:
+                return abs(current.close / previous.close - 1) <= Decimal("0.25")
+            tolerance = max(action.value * Decimal("0.25"), previous.close * Decimal("0.02"))
+            return abs((previous.close - current.close) - action.value) <= tolerance
