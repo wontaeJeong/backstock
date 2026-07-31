@@ -13,3 +13,8 @@
 - Turnover: 선택한 정의를 코드와 UI에 명시
 
 거래 없음, 0분산, 손실 없음의 JSON 표현을 명시적으로 처리한다.
+
+현재 Prompt 05 engine summary는 total return, realized/unrealized P&L, commission, tax, slippage를
+계산한다. benchmark는 초기 자본을 첫 benchmark close에 정규화한 buy-and-hold 시계열이다. CAGR,
+volatility, Sharpe, Sortino, drawdown과 거래 통계는 analytics 단계에서 독립 계산과 edge case 계약을
+추가한다.

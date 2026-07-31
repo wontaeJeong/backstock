@@ -52,3 +52,19 @@ Validation:
   ingress 또는 Prompt 08 security slice가 이를 강제해야 한다.
 - filesystem manifest가 현재 snapshot metadata의 authority다. PostgreSQL 등록과 BacktestRun의
   snapshot id/checksum 고정 transaction은 Prompt 08에서 함께 구현한다.
+
+## 2026-08-01 이벤트 기반 백테스트 엔진
+
+- 일봉 종가에서 만든 주문은 종목별 다음 bar open부터 실행한다. 같은 종가를 본 뒤 같은 종가에
+  체결하지 않는다.
+- 같은 timestamp의 bar와 주문은 `(timestamp, instrument_id)` 순서로 처리해 입력 배열 순서와 무관한
+  결정성을 유지한다.
+- 현재 실행 범위는 MARKET/LIMIT, DAY/GTC, long-only, 전량 체결이다. stop/partial fill/volume
+  participation과 고급 risk policy는 Prompt 07에서 확장한다.
+- limit gap은 주문자에게 유리한 open 가격으로 체결하고, intrabar touch는 limit 가격으로 체결한다.
+- 비용은 commission, 매도세, adverse slippage를 Decimal로 분리 기록한다. tick/lot 반올림은 Prompt 07
+  execution policy가 소유한다.
+- 기본 종료 정책은 미체결 주문 expire와 마지막 close mark다. 명시적 선택 시 마지막 close에서 비용을
+  반영해 포지션을 청산한다.
+- engine은 DB/API/job queue를 호출하지 않는 순수 library다. run persistence, worker lifecycle,
+  snapshot FK transaction은 Prompt 08에서 연결한다.

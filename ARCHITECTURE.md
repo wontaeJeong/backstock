@@ -4,7 +4,7 @@
 
 Python 3.12 `uv` project, FastAPI adapter, worker entrypoint, Next.js web, Alembic migration,
 PostgreSQL과 Docker Compose 실행 기반이 구축되어 있다. market data provider, 순수 품질 검사,
-immutable Parquet snapshot과 bounded `/datasets` API가 구현되어 있다.
+immutable Parquet snapshot, bounded `/datasets` API, 순수 이벤트 기반 일봉 backtest engine이 구현되어 있다.
 
 ## 개요
 
@@ -71,6 +71,13 @@ sidecar로 먼저 보존한 뒤 정규화한다. untrusted local upload는 bound
 normalized Parquet와 write-once manifest를 게시한다. API는 이 use case만 호출한다. provider 간 비교는
 경고 report만 만들고 데이터를 합치지 않는다.
 
+Backtest engine은 immutable snapshot reference와 이미 검증된 bar만 입력으로 받으며 provider, HTTP,
+DB를 호출하지 않는다. 매 bar는 canonical 순서로 `Clock -> Market -> 기존 주문 체결 -> Strategy 평가 ->
+OrderIntent/Risk -> Order -> Metrics`를 처리한다. 종가 전략 결정은 다음 instrument bar의 open부터 체결
+대상이 된다. 원장과 비용은 Decimal이며 result에 order, fill, portfolio snapshot, benchmark, event log,
+재현성 metadata를 함께 반환한다. Prompt 07 전까지 risk 단계는 현금·보유 수량을 확인하는 내장
+pass-through 정책이고, Prompt 08에서 worker/job persistence와 연결한다.
+
 ## 저장
 
 PostgreSQL에는 instrument와 mapping을 저장한다. Prompt 08에서 manifest, strategy version, run, summary,
@@ -85,6 +92,9 @@ BacktestRun 생성과 함께 immutable reference를 고정해야 한다.
 ## Job 상태
 
 `PENDING -> VALIDATING -> RUNNING -> SUCCEEDED/FAILED`, 취소는 `CANCELLING -> CANCELLED`.
+
+순수 engine은 callback 기반 cooperative cancellation을 지원하며 `SUCCEEDED`, `FAILED`, `CANCELLED`
+result를 반환한다. 영속 job 상태 전이와 transaction은 Prompt 08 application service가 소유한다.
 
 ## 재현성
 

@@ -13,3 +13,6 @@
 - Order: state, requested/filled quantity, prices, TIF
 - Fill: timestamp, quantity, price, commission, tax, slippage
 - PortfolioSnapshot: cash, market value, equity, realized/unrealized P&L
+- BacktestEvent: monotonic sequence, timestamp, kind, instrument/order reference, reason, 가격·비용·원장 변화
+- BacktestResult: terminal status, summary, order/fill/portfolio/benchmark/event, reproducibility metadata,
+  optional failure reason. API/DB persistence 전에도 완전한 immutable library result다.
