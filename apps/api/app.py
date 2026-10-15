@@ -157,6 +157,10 @@ def create_app(
     app.add_exception_handler(DatasetInvalidError, api_exception_handler)
     app.add_exception_handler(SnapshotNotFoundError, api_exception_handler)
     app.add_exception_handler(StrategyValidationError, api_exception_handler)
+    # Build included-router dependency schemas before concurrent first requests.
+    # FastAPI/Pydantic lazy schema construction uses process-global warning filters.
+    # The public OpenAPI builder also validates and caches the complete wire contract.
+    app.openapi()
     return app
 
 

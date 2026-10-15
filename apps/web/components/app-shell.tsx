@@ -29,7 +29,7 @@ export function AppShell({
         </nav>
         <div className="sidebar__status">
           <StatusBadge label="연구 모드" tone="info" />
-          <p>실주문·paper broker 기능은 제공하지 않습니다.</p>
+          <p>실주문 없음 · 수동 과거 가격 Paper 연습만 제공합니다.</p>
         </div>
       </aside>
       {children}

@@ -26,6 +26,14 @@ spread/latency/optional all-or-none volume cap은 시나리오이고 실제 queu
 
 ## 개요
 
+연구 워크벤치의 보관함·분석·비교·실험·수동 paper 패널도 같은 Next.js same-origin allowlist proxy를
+거친다. 금융 계산은 서버에만 있으며 UI는 통계/이유·원본 근거·차트 좌표만 표시한다. 검증된 bar 미리보기는
+manifest row_count≤3000 확인 후 checksum-bound reader를 사용하고 파일 경로를 반환하지 않는다.
+portfolio analysis는 immutable 실험의 별도 파생 조회이고, 원본 artifact를 수정하지 않는다.
+paper POST의 성공/실패·과거 idempotency 응답과 무관하게 UI는 현재 GET 계좌를 다시 읽는다.
+application factory는 동시 요청 전에 공개 `app.openapi()`로 route/dependency schema와 API 계약을 구성한다.
+FastAPI/Pydantic lazy schema 생성이 병렬 첫 요청에서 전역 warning filter를 경쟁하지 않게 한다.
+
 ```text
 Browser -> Web -> API -> Application Services
                          -> Market Data

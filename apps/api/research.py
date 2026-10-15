@@ -20,6 +20,7 @@ from packages.application.research_comparison import (
 from packages.application.research_experiment_models import (
     Experiment,
     GridRequest,
+    PortfolioExperiment,
     PortfolioRequest,
     WalkForwardRequest,
 )
@@ -32,6 +33,12 @@ from packages.application.research_library import (
     ResearchLibrary,
     SaveStrategy,
     StrategyRecord,
+)
+from packages.application.research_outcomes import (
+    BarPage,
+    PortfolioAnalysis,
+    portfolio_analysis,
+    preview_bars,
 )
 from packages.application.research_store import ResearchIntegrityError
 from packages.application.simulations import SimulationService
@@ -117,6 +124,26 @@ def build_research_router(root: Path, simulations: SimulationService) -> APIRout
     async def analysis(run_id: str) -> Analysis:
         def operation() -> Analysis:
             return analyze(comparison.run(run_id))
+
+        return await call(operation)
+
+    @router.get("/datasets/{identity}/bars")
+    async def bars(
+        identity: str,
+        page: Annotated[int, Query(ge=1, le=1_000_000)] = 1,
+        page_size: Annotated[int, Query(ge=1, le=1000)] = 250,
+    ) -> BarPage:
+        return await call(preview_bars, root, identity, page, page_size)
+
+    @router.get("/experiments/{identity}/analysis")
+    async def aggregate_analysis(identity: str) -> PortfolioAnalysis:
+        def operation() -> PortfolioAnalysis:
+            artifact = experiments.get(identity)
+            if not isinstance(artifact, PortfolioExperiment):
+                raise HTTPException(
+                    status_code=422, detail="portfolio analysis requires portfolio experiment"
+                )
+            return portfolio_analysis(artifact)
 
         return await call(operation)
 

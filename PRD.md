@@ -8,7 +8,8 @@ Stock Strategy Lab은 과거 주식 데이터로 프로그램 매매의 진입·
 시뮬레이션하고 원금 대비 수익률·순손익·최대 낙폭·체결 근거를 확인한다. 1분·5분봉은 종료 시각이
 표시된 파일 업로드, 제한된 최근 Yahoo 분봉, 로컬 raw tick/quote 재생과 명시적 합성 데모를 지원한다.
 거래소 queue·부분 체결·실제 초단타 유효성 검증과 실주문은 제공하지 않는다.
-아래 전체 요구사항 중 비동기 작업 큐, 고급 분석, paper broker 등은 후속 목표다.
+서버 고급 분석·보관함·grid/walk-forward·독립 고정 예산 포트폴리오·수동 paper 연습과 한국어 UI를 제공한다.
+비동기 작업 큐·실 broker 통합은 후속 목표다. 상세 구현/제외 범위는 `docs/reference/research-feature-matrix.md`다.
 
 사용자는 종목, 기간, 데이터 snapshot, 전략 버전, 비용, 체결 가정을 선택해 백테스트를 실행한다. 시스템은 수익률뿐 아니라 주문 후보, 체결, 현금, 포지션, 비용, 낙폭을 재현 가능한 형태로 제공한다.
 
@@ -118,7 +119,7 @@ OrderIntent → risk check → 주문 후보 → 승인/거절 → paper broker 
 
 ## 8. 후속 범위
 
-분봉, 공매도, walk-forward, parameter sweep, KIS 모의투자·실전투자, MCP, RBAC, Kubernetes/GitOps, 유료 데이터.
+공매도, 실시간 feed/queue·부분 체결, KIS 모의투자·실전투자, MCP, RBAC, Kubernetes/GitOps, 유료 데이터.
 
 ## 9. 기능 요구사항
 

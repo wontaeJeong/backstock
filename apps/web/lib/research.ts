@@ -1,7 +1,37 @@
 import { z } from "zod"
 
-export const symbols = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "QQQ"] as const
-export type Interval = "1d" | "1m" | "5m"
+export type Strategy = {
+  name: string
+  universe: string[]
+  timeframe: string
+  entry: { condition: unknown }
+  position_sizing: Record<string, unknown>
+  [key: string]: unknown
+}
+
+export const symbols = [
+  "AAPL",
+  "MSFT",
+  "NVDA",
+  "AMZN",
+  "GOOGL",
+  "META",
+  "QQQ",
+  "TSLA",
+  "AVGO",
+  "COST",
+  "NFLX",
+  "AMD",
+  "ADBE",
+  "INTC",
+  "CSCO",
+  "PEP",
+  "AMGN",
+  "TXN",
+  "INTU",
+  "QCOM",
+] as const
+export type Interval = "1d" | "1m" | "5m" | "tick"
 export type OperandKind =
   | "close"
   | "open"
@@ -13,7 +43,25 @@ export type OperandKind =
   | "volume_ratio"
   | "return"
   | "constant"
-export type Operand = { kind: OperandKind; period: string; value: string }
+  | "vwap"
+  | "bollinger_middle"
+  | "bollinger_upper"
+  | "bollinger_lower"
+  | "macd"
+  | "macd_signal"
+  | "macd_histogram"
+  | "rolling_high"
+  | "rolling_low"
+  | "volume_average"
+export type Operand = {
+  kind: OperandKind
+  period: string
+  value: string
+  fast?: string
+  slow?: string
+  signal?: string
+  multiplier?: string
+}
 export type Rule = {
   id: string
   left: Operand
@@ -38,6 +86,17 @@ export type Draft = {
   holdingBars: string
   entry: RuleGroup
   exit: RuleGroup
+  advancedJson?: string
+  spread: string
+  latency: string
+  participation: string
+  orderType: "market" | "limit" | "stop" | "stop_limit"
+  limitOffset: string
+  stopOffset: string
+  tif: "day" | "gtc"
+  entryStart: string
+  entryEnd: string
+  flattenAt: string
 }
 
 const operand = (kind: OperandKind, period = "5", value = "30"): Operand => ({
@@ -61,6 +120,16 @@ export function defaultDraft(): Draft {
     stopLoss: "3",
     takeProfit: "6",
     holdingBars: "",
+    spread: "0",
+    latency: "0",
+    participation: "",
+    orderType: "market",
+    limitOffset: "0",
+    stopOffset: "0",
+    tif: "day",
+    entryStart: "",
+    entryEnd: "",
+    flattenAt: "",
     entry: {
       match: "all",
       rules: [
@@ -129,6 +198,14 @@ function valueDefinition(input: Operand) {
     indicator: input.kind,
     period: periodSchema.parse(input.period),
     shift: 0,
+    ...(input.kind.startsWith("macd")
+      ? {
+          fast_period: periodSchema.parse(input.fast ?? "12"),
+          slow_period: periodSchema.parse(input.slow ?? "26"),
+          signal_period: periodSchema.parse(input.signal ?? "9"),
+        }
+      : {}),
+    ...(input.kind.startsWith("bollinger") ? { stddev_multiplier: input.multiplier ?? "2" } : {}),
   }
 }
 
@@ -155,10 +232,12 @@ function percentFraction(value: string): string {
 }
 
 export function buildStrategy(draft: Draft) {
-  const stop = (value: string) =>
-    value
-      ? { mode: "percent", value: z.coerce.number().gt(0).max(100).parse(value).toString() }
-      : undefined
+  if (draft.advancedJson !== undefined) return JSON.parse(draft.advancedJson) as Strategy
+  const stop = (value: string) => {
+    if (!value) return undefined
+    z.coerce.number().gt(0).max(100).parse(value)
+    return { mode: "percent", value }
+  }
   return {
     schema_version: "1",
     name: z.string().trim().min(1).max(200).parse(draft.name),
@@ -172,7 +251,23 @@ export function buildStrategy(draft: Draft) {
       take_profit: stop(draft.takeProfit),
       max_holding_bars: draft.holdingBars ? periodSchema.parse(draft.holdingBars) : undefined,
     },
-    order: { order_type: "market", time_in_force: "day" },
+    order: {
+      order_type: draft.orderType,
+      time_in_force: draft.tif,
+      limit_offset_bps: ["limit", "stop_limit"].includes(draft.orderType)
+        ? draft.limitOffset
+        : null,
+      stop_offset_bps: ["stop", "stop_limit"].includes(draft.orderType) ? draft.stopOffset : null,
+    },
+    session:
+      draft.entryStart || draft.entryEnd || draft.flattenAt
+        ? {
+            entry_start: draft.entryStart || null,
+            entry_end: draft.entryEnd || null,
+            flatten_at: draft.flattenAt || null,
+            weekdays: [0, 1, 2, 3, 4],
+          }
+        : null,
   }
 }
 
@@ -182,8 +277,10 @@ export function buildRequest(draft: Draft, snapshotId?: string) {
     z.coerce.number().min(0).max(100).parse(cost)
   if (draft.source === "snapshot" && !snapshotId)
     throw new Error("먼저 데이터 파일을 업로드하세요.")
-  if (draft.source === "yfinance" && draft.interval !== "1d")
-    throw new Error("분봉은 파일 업로드 또는 합성 데모를 이용하세요.")
+  if (draft.source === "yfinance" && draft.interval === "tick")
+    throw new Error("원격 tick은 지원하지 않습니다. 파일 또는 합성 데모를 선택하세요.")
+  if (draft.participation) z.coerce.number().gt(0).max(1).parse(draft.participation)
+  z.coerce.number().min(0).max(100).parse(draft.spread)
   return {
     source: draft.source,
     symbol: draft.symbol,
@@ -192,6 +289,9 @@ export function buildRequest(draft: Draft, snapshotId?: string) {
     commission_bps: draft.commission,
     sell_tax_bps: draft.tax,
     slippage_bps: draft.slippage,
+    spread_bps: draft.spread,
+    latency_ms: z.coerce.number().int().min(0).max(60000).parse(draft.latency),
+    volume_participation: draft.participation || null,
     snapshot_id: draft.source === "snapshot" ? snapshotId : undefined,
     start: draft.source === "yfinance" ? `${draft.start}T00:00:00Z` : undefined,
     end: draft.source === "yfinance" ? `${draft.end}T00:00:00Z` : undefined,
@@ -255,20 +355,22 @@ export const simulationReportSchema = z
       .object({
         status: z.enum(["succeeded", "failed", "cancelled"]),
         failure_reason: z.string().nullable(),
-        summary: z.object({
-          initial_cash: decimal,
-          final_equity: decimal,
-          total_return: decimal,
-          realized_pnl: decimal,
-          unrealized_pnl: decimal,
-          commission: decimal,
-          tax: decimal,
-          slippage: decimal,
-        }),
+        summary: z
+          .object({
+            initial_cash: decimal,
+            final_equity: decimal,
+            total_return: decimal,
+            realized_pnl: decimal,
+            unrealized_pnl: decimal,
+            commission: decimal,
+            tax: decimal,
+            slippage: decimal,
+          })
+          .passthrough(),
         portfolio: z.array(point).min(1),
         fills: z.array(fill),
         orders: z.array(order),
-        benchmark: z.array(z.object({ timestamp: z.string(), value: decimal })),
+        benchmark: z.array(z.object({ timestamp: z.string(), value: decimal }).passthrough()),
         metadata: z
           .object({
             strategy_version: z.string(),
@@ -278,14 +380,16 @@ export const simulationReportSchema = z
           .passthrough(),
       })
       .passthrough(),
-    metrics: z.object({
-      net_profit: decimal,
-      max_drawdown: decimal,
-      fill_count: z.number(),
-      closed_trade_count: z.number(),
-      benchmark_return: decimal,
-      metric_version: z.string(),
-    }),
+    metrics: z
+      .object({
+        net_profit: decimal,
+        max_drawdown: decimal,
+        fill_count: z.number(),
+        closed_trade_count: z.number(),
+        benchmark_return: decimal,
+        metric_version: z.string(),
+      })
+      .passthrough(),
     warnings: z.array(z.string()),
   })
   .passthrough()

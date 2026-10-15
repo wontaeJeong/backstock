@@ -141,3 +141,16 @@ Validation:
   POSIX 로컬 filesystem용이고 NFS/분산 거래 저장소가 아니다. DB migration은 없다.
 - kill switch 중에도 안전한 취소/거절/mark/조회/내부 원장 대사를 유지한다. 대사는 외부 broker
   비교가 아니다. 자세한 오류·한도·재시도·응답 계약은 같은 API reference의 Task 3 절에 고정한다.
+
+## 2026-10-16 워크벤치 통합
+
+- 기존 간편 폼으로 정확히 표현할 수 없는 중첩 조건·sizing·risk는 고급 JSON을 authoritative 편집기로
+  사용한다. JSON에서 이름·universe·timeframe을 보존하고 간편 전략 폼을 비활성화한다. 원금·비용은
+  별도 실행 설정이다. 자동 폼 변환으로 AST를 잘라내지 않는다.
+- 가격은 검증된 snapshot bar/quote만 사용한다. 25개 창의 종가/tick print 선과 정확한 timestamp의
+  실제 체결 표식을 제공하며, OHLC 상세와 자산 상태는 별도 표로 읽는다. equity를 주가로 복제하지 않는다.
+- portfolio 파생 통계는 보수적으로 모든 component 성공·비어 있지 않은 curve·제외 timestamp 없음일
+  때만 제공한다. 공통 구간 일부만으로 전체 예산 성과를 가장하지 않기 위한 결정이다. 원본 curve와
+  artifacts는 그대로 보존하며 DB migration이나 과거 artifact rewrite는 없다.
+- 비교 선택·최근 실험 ID·선택 paper 계좌만 브라우저에 보존하며 authoritative 결과/계좌는 서버 GET이다.
+  원본 전체 JSON·CSV는 서버 기록을 보존한다. 공개 배포용 인증/분산 상태 저장이라고 주장하지 않는다.

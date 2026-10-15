@@ -222,6 +222,13 @@ def analyze(report: SimulationReport) -> Analysis:
         "sum positive closed net PnL / absolute sum negative closed net PnL",
         "no losing closed matched lots",
     )
+    winners, losers = (sum(t.net_profit > 0 for t in trips), sum(t.net_profit < 0 for t in trips))
+    metric(
+        "payoff_ratio",
+        (gains / winners) / (losses / losers) if winners and losers else None,
+        "mean positive closed net PnL / absolute mean negative closed net PnL",
+        "requires both winning and losing closed matched lots",
+    )
     metric(
         "expectancy",
         sum((t.net_profit for t in trips), ZERO) / len(trips) if trips else None,

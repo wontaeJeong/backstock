@@ -84,7 +84,7 @@ type RoundTrip = {
 type Analysis = {
   run_id: Hex64;
   statistics: Record<"net_profit" | "total_return" | "max_drawdown" | "cagr" |
-    "volatility" | "sharpe" | "sortino" | "win_rate" | "profit_factor" | "expectancy" |
+    "volatility" | "sharpe" | "sortino" | "win_rate" | "profit_factor" | "payoff_ratio" | "expectancy" |
     "exposure" | "turnover" | "holding_seconds" | "commission" | "tax" | "slippage" | "spread", Statistic>;
   daily_returns: ReturnPoint[]; monthly_returns: ReturnPoint[];
   drawdown: {timestamp: ISODateTime; value: DecimalString}[];
@@ -106,6 +106,8 @@ type Analysis = {
   다시 차감하지 않는다. FIFO matched lot에 진입·청산 수수료/세금을 수량 비례 배분한다.
 - 열린 lot은 승률·profit factor·expectancy·holding 통계에서 제외한다. 한 sell이 여러 lot을 닫으면
   matched lot 여러 건이다. 승률의 분모는 sell 주문 수가 아니다. 무승부도 분모에 포함한다.
+- `payoff_ratio`는 양수 closed-lot **net** PnL의 평균 / 음수 closed-lot **net** PnL 평균의 절댓값이다.
+  profit factor의 합계 비율과 다르며, 승리/패배 중 어느 한 분류가 없으면 null과 reason을 반환한다.
 - daily/monthly는 뉴욕 현지 날짜 마지막 관측 equity를 사용한다. 첫 구간의 분모는 원금이며
   이후 구간은 이전 관측 마감 equity다. 누락일을 보간하거나 0수익률로 삽입하지 않는다.
 - volatility는 일 수익률 표본표준편차×√252, Sharpe는 무위험 0, Sortino는 목표 0이며
@@ -270,6 +272,24 @@ type PortfolioExperiment = {
 실패한 component가 있으면 curve와 correlations 모두 비운다. 실패 예산을 무손실 현금으로 가장하지 않는다.
 
 ## 단기매매 데이터·체결·DSL 확장 (Task 2)
+
+### 검증된 bar 미리보기 (UI bridge)
+
+`GET /research/datasets/{snapshot_id}/bars?page=1&page_size=250` →
+`{snapshot_id,interval,items:Bar[],total,page,page_size}`. page는 1..1,000,000,
+page_size는 1..1000이다. manifest의 row_count≤3000을 **Parquet decode 전에** 검사한다.
+기존 checksum-bound snapshot reader로 identity/normalized checksum을 검증하며 Decimal 문자열,
+offset timestamp(원본 microsecond 정밀도), bid/ask 및 모든 Bar 필드를 보존한다. 경로나 storage URI는
+이 응답에 없다. 없는 ID 404, 무결성 409, 한도/페이지 오류 422. UI는 25개 가격 창으로 읽는다.
+
+### 포트폴리오 금융 요약 (UI bridge)
+
+`GET /research/experiments/{id}/analysis` →
+`{experiment_id,statistics:Record<"initial_cash"|"final_equity"|"net_profit"|"total_return"|"max_drawdown",Statistic>}`.
+portfolio가 아니면 422다. 기존 원본 실험은 변경하지 않는다. 전체 원금, 마지막 공통 시점 equity,
+equity−원금, equity/원금−1, 초기 원금 포함 peak drawdown을 서버 Decimal로 계산한다.
+curve가 비거나 실패 component가 있거나 제외 timestamp가 있으면 집계가 불완전하므로 **모든 값은 null**이고
+reason을 반환한다. 성공한 부분만 현금으로 가장하지 않는다. 공통 curve 자체는 원본 실험에서 확인 가능하다.
 
 ### 실행 설정과 결과
 
