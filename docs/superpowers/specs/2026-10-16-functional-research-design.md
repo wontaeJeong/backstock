@@ -39,7 +39,8 @@ snapshot/Decimal engine을 유지하며, 실주문·실제 credential·자동 �
 12. **지표/편집 확장**: 기존 SMA/EMA/RSI/ATR/돌파/거래량 외에 rolling VWAP, Bollinger upper/lower,
     MACD(명시적 fast/slow/signal)와 시간 조건, 주문 설정, JSON 편집·검증을 연결한다.
 13. **가상매매 연습**: 실제 자금 없는 paper 계좌, 제안→사용자 승인/거절→가상 체결/취소,
-    현금·포지션·비용·감사 이력, 잔고/수량/주문 상한·kill switch·idempotency.
+    현금·포지션·비용·감사 이력, 수동 시세 갱신과 평가손익·내부 원장 대조,
+    잔고/수량/주문 상한·kill switch·idempotency.
     시세는 명시적으로 저장된 snapshot/사용자 제공 시각의 가상 시세이며 실시간 broker로 가장하지 않는다.
 
 ## 제약과 안전

@@ -59,9 +59,10 @@ Required API:
 ### Task 3: 승인 기반 가상매매 backend
 **Files:** Create focused `packages/domain/paper.py`, `packages/application/paper.py`, `packages/broker/paper_store.py`, `apps/api/paper.py`, tests `tests/paper/`, update `BROKER_INTEGRATION.md` and API contract. Register in app.
 **Interfaces:** `/paper/accounts` POST `{name,initial_cash}` / GET list, GET `/{id}` state; POST `/{id}/proposals` `{symbol,side,quantity,reference_price,quote_at,idempotency_key}`; POST `/{id}/orders/{order_id}/approve|reject|cancel` with idempotency key; POST `/{id}/kill-switch` `{enabled}`. Return full typed account `{account_id,name,cash,positions,orders,audit,kill_switch,mode:"paper"}` with Decimal strings.
+- Also `POST /paper/accounts/{id}/quotes` `{symbol,price,quote_at,idempotency_key}` for explicit manual valuation marks, and `GET /paper/accounts/{id}/reconciliation` for internal initial-cash/fill/position ledger consistency (not external broker reconciliation). Quotes/proposals do not themselves fill orders; display valuation quote/source separately from cash/realized money. Kill switch blocks new order risk, not safe reject/cancel or read-only checks.
 - Pure domain money/position logic, no live SDK/credentials/network. User-supplied/snapshot quote is explicitly historical/manual, not live. Proposed orders do not change balances; approval applies risk and executes a labeled paper fill at the reference quote with declared costs. Long-only, no negative cash/positions, bounded notional/order size. Reject/cancel are real state transitions.
 - File lock + atomic mutable account state, immutable audit/event records, persistent request-id binding; reusing key with changed payload is rejected, exact retry returns same result after restart. Kill switch blocks proposals/approval, production flags cannot turn this into real broker.
-- [ ] RED approval-bypass, insufficient cash/position, idempotency conflict/exact retry/restart, concurrent approvals, kill-switch and audit redaction tests.
+- [ ] RED approval-bypass, insufficient cash/position, idempotency conflict/exact retry/restart, concurrent approvals, quote marks/unchanged cash, internal reconciliation, kill-switch and audit redaction tests.
 - [ ] Implement domain→application→store/API boundaries with bounded input/threadpool and documented Korean semantics.
 - [ ] Full Python suite/lint/type, architecture dependency tests; commit/report contracts for UI.
 
@@ -71,6 +72,7 @@ Required API:
 - Connect library search/pagination/archive/restore, strategy save/load/clone/JSON import/export and validated JSON editing to current draft.
 - Extend symbols/indicators/order/session/tick/quote/spread/latency/participation controls, remote minute limits and clear data provenance.
 - Server-backed detailed stats/null explanations, monthly returns/drawdown, trades, bar-state replay with trade markers, CSV exports, persistent run selection/comparison and genuine QQQ benchmark.
+  Add a thin verified data-preview use case/API `GET /research/datasets/{snapshot_id}/bars?page=1&page_size=250` (1..1000, max3000-row research snapshot before decoding) returning `{snapshot_id,interval,items:Bar[],total,page,page_size}` if the earlier backend contract lacks bars. Use it for OHLC/tick price inspection and replay; preserve Decimal/quote/timestamp fields and do not expose filesystem paths. Display chart windows rather than compressing thousands of candles into unreadable widths.
 - Grid/cost scenarios, chronological walk-forward and fixed-budget portfolio controls/results use current edited strategy and actual run IDs. In-sample/failed/not-run/zero-trade distinctions visible.
 - Paper account/propose/approve/reject/cancel/kill-switch/portfolio/audit controls with explicit paper/manual quote labels and no live-order controls.
 - [ ] RED unit and E2E for every feature group, input preservation/failure viewport, reload/library versions and API errors.
