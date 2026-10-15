@@ -1,6 +1,9 @@
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from apps.api.app import create_app
+from packages.shared.settings import Settings
 
 
 def test_live_endpoint_reports_process_health() -> None:
@@ -53,3 +56,13 @@ def test_unknown_route_uses_common_error_contract() -> None:
         "details": {},
         "request_id": "missing-request",
     }
+
+
+def test_readiness_reports_unwritable_storage(tmp_path: Path) -> None:
+    blocked = tmp_path / "not-a-directory"
+    blocked.write_text("blocked")
+    client = TestClient(create_app(Settings(data_storage_path=blocked)))
+    assert client.get("/health/live").status_code == 200
+    response = client.get("/health/ready")
+    assert response.status_code == 503
+    assert str(blocked) not in response.text

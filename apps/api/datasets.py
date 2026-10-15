@@ -3,6 +3,7 @@ from tempfile import TemporaryDirectory
 from typing import Annotated, Final
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi.concurrency import run_in_threadpool
 
 from apps.api.schemas import DatasetUploadRequest
 from packages.application.datasets import DatasetSnapshotService
@@ -20,6 +21,29 @@ MEDIA_TYPES: Final = {
     "application/csv": ".csv",
     "application/vnd.apache.parquet": ".parquet",
 }
+
+
+def _publish_upload(
+    service: DatasetSnapshotService,
+    settings: Settings,
+    upload: DatasetUploadRequest,
+    safe_path: Path,
+    filename: str,
+) -> SnapshotManifest:
+    provider = LocalFileProvider(
+        LocalFileSource(
+            path=safe_path,
+            source_name=filename,
+            instrument=upload.to_bar_request().instrument,
+            price_adjustment=upload.price_adjustment,
+            volume_adjustment=upload.volume_adjustment,
+            max_rows=settings.dataset_upload_max_rows,
+            max_columns=settings.dataset_upload_max_columns,
+            selection=LocalFileSelection.FULL_SOURCE,
+        ),
+        raw_store=FileRawStore(settings.data_storage_path.resolve() / "raw"),
+    )
+    return service.create_from_provider(provider, upload.to_bar_request())
 
 
 def build_dataset_router(service: DatasetSnapshotService, settings: Settings) -> APIRouter:
@@ -56,21 +80,10 @@ def build_dataset_router(service: DatasetSnapshotService, settings: Settings) ->
                     size += len(chunk)
                     if size > settings.dataset_upload_max_bytes:
                         raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE)
-                    _ = stream.write(chunk)
-            provider = LocalFileProvider(
-                LocalFileSource(
-                    path=safe_path,
-                    source_name=filename,
-                    instrument=upload.to_bar_request().instrument,
-                    price_adjustment=upload.price_adjustment,
-                    volume_adjustment=upload.volume_adjustment,
-                    max_rows=settings.dataset_upload_max_rows,
-                    max_columns=settings.dataset_upload_max_columns,
-                    selection=LocalFileSelection.FULL_SOURCE,
-                ),
-                raw_store=FileRawStore(settings.data_storage_path.resolve() / "raw"),
+                    _ = await run_in_threadpool(stream.write, chunk)
+            return await run_in_threadpool(
+                _publish_upload, service, settings, upload, safe_path, filename
             )
-            return service.create_from_provider(provider, upload.to_bar_request())
 
     @router.get(
         "/dataset-snapshots/{snapshot_id}",

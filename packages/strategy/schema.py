@@ -6,6 +6,8 @@ from typing import Annotated, ClassVar, Final, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 MAX_EXPRESSION_DEPTH: Final = 8
+MAX_EXPRESSION_NODES: Final = 64
+EXCESSIVE_NODES: Final = "condition tree exceeds the maximum node count"
 MAX_SIZING_FRACTION: Final = Decimal(1)
 EXCESSIVE_DEPTH: Final = "condition tree exceeds the maximum expression depth"
 MARKET_LIMIT_OFFSET: Final = "market orders cannot define a limit offset"
@@ -21,13 +23,13 @@ class _FrozenModel(BaseModel):
 
 class ConstantValue(_FrozenModel):
     type: Literal["constant"] = "constant"
-    value: Decimal
+    value: Decimal = Field(max_digits=28, decimal_places=12)
 
 
 class BarField(_FrozenModel):
     type: Literal["bar_field"] = "bar_field"
     field: Literal["open", "high", "low", "close", "volume"]
-    shift: int = Field(default=0, ge=0)
+    shift: int = Field(default=0, ge=0, le=5000)
 
 
 class IndicatorRef(_FrozenModel):
@@ -43,8 +45,8 @@ class IndicatorRef(_FrozenModel):
         "volume_ratio",
         "return",
     ]
-    period: int = Field(gt=0)
-    shift: int = Field(default=0, ge=0)
+    period: int = Field(gt=0, le=5000)
+    shift: int = Field(default=0, ge=0, le=5000)
 
 
 class PositionField(_FrozenModel):
@@ -70,12 +72,12 @@ Value = Annotated[
 
 class AllCondition(_FrozenModel):
     op: Literal["all"] = "all"
-    conditions: tuple["Condition", ...] = Field(min_length=1)
+    conditions: tuple["Condition", ...] = Field(min_length=1, max_length=8)
 
 
 class AnyCondition(_FrozenModel):
     op: Literal["any"] = "any"
-    conditions: tuple["Condition", ...] = Field(min_length=1)
+    conditions: tuple["Condition", ...] = Field(min_length=1, max_length=8)
 
 
 class NotCondition(_FrozenModel):
@@ -117,6 +119,16 @@ def condition_depth(condition: object) -> int:
             return 0
 
 
+def condition_nodes(condition: object) -> int:
+    match condition:
+        case AllCondition(conditions=items) | AnyCondition(conditions=items):
+            return 1 + sum(condition_nodes(item) for item in items)
+        case NotCondition(condition=inner):
+            return 1 + condition_nodes(inner)
+        case _:
+            return 1
+
+
 class EntryRule(_FrozenModel):
     condition: Condition
 
@@ -127,7 +139,7 @@ class ExitRule(_FrozenModel):
 
 class StopLossRule(_FrozenModel):
     mode: Literal["percent", "atr_multiple"]
-    value: Decimal = Field(gt=0)
+    value: Decimal = Field(gt=0, le=1_000_000, max_digits=24, decimal_places=12)
     atr_period: int = Field(default=14, gt=0)
 
     @model_validator(mode="after")
@@ -139,13 +151,13 @@ class StopLossRule(_FrozenModel):
 
 class TakeProfitRule(_FrozenModel):
     mode: Literal["percent", "atr_multiple"]
-    value: Decimal = Field(gt=0)
+    value: Decimal = Field(gt=0, le=1_000_000, max_digits=24, decimal_places=12)
     atr_period: int = Field(default=14, gt=0)
 
 
 class TrailingStopRule(_FrozenModel):
     mode: Literal["percent", "atr_multiple"]
-    value: Decimal = Field(gt=0)
+    value: Decimal = Field(gt=0, le=1_000_000, max_digits=24, decimal_places=12)
     atr_period: int = Field(default=14, gt=0)
 
     @model_validator(mode="after")
@@ -164,12 +176,12 @@ class RiskRules(_FrozenModel):
 
 class FixedQuantitySizing(_FrozenModel):
     method: Literal["fixed_quantity"] = "fixed_quantity"
-    quantity: int = Field(gt=0)
+    quantity: int = Field(gt=0, le=1_000_000_000)
 
 
 class FixedNotionalSizing(_FrozenModel):
     method: Literal["fixed_notional"] = "fixed_notional"
-    notional: Decimal = Field(gt=0)
+    notional: Decimal = Field(gt=0, le=1_000_000_000_000, max_digits=24, decimal_places=8)
 
 
 class PercentEquitySizing(_FrozenModel):
@@ -192,7 +204,7 @@ PositionSizing = Annotated[
 
 class OrderRule(_FrozenModel):
     order_type: Literal["market", "limit"] = "market"
-    limit_offset_bps: Decimal | None = Field(default=None, ge=0)
+    limit_offset_bps: Decimal | None = Field(default=None, ge=0, lt=10_000)
     time_in_force: Literal["day", "gtc"] = "day"
 
     @model_validator(mode="after")
@@ -207,8 +219,8 @@ class OrderRule(_FrozenModel):
 class StrategyDefinition(_FrozenModel):
     schema_version: Literal["1"] = "1"
     name: str = Field(min_length=1, max_length=200)
-    universe: tuple[str, ...] = Field(min_length=1)
-    timeframe: Literal["1d"] = "1d"
+    universe: tuple[str, ...] = Field(min_length=1, max_length=50)
+    timeframe: Literal["1d", "1m", "5m"] = "1d"
     entry: EntryRule
     exit: ExitRule = Field(default_factory=ExitRule)
     position_sizing: PositionSizing
@@ -228,4 +240,9 @@ class StrategyDefinition(_FrozenModel):
             depth = max(depth, condition_depth(self.exit.condition))
         if depth > MAX_EXPRESSION_DEPTH:
             raise ValueError(EXCESSIVE_DEPTH)
+        nodes = condition_nodes(self.entry.condition)
+        if self.exit.condition is not None:
+            nodes += condition_nodes(self.exit.condition)
+        if nodes > MAX_EXPRESSION_NODES:
+            raise ValueError(EXCESSIVE_NODES)
         return self

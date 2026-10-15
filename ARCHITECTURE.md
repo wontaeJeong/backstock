@@ -8,6 +8,19 @@ immutable Parquet snapshot, bounded `/datasets` API, 순수 이벤트 기반 일
 `packages/strategy`가 JSON AST 조건주문 DSL, indicator, `StrategyEvaluator` 구현체, canonical
 hash version, `/strategies/validate`·`/strategies/metadata` API, 4개 템플릿을 제공한다.
 
+한국어 웹 편집기 → 같은 출처의 Next.js proxy → `/simulations` → `SimulationService` →
+검증된 snapshot reader → 순수 DSL/engine → immutable run JSON 흐름이 연결되어 있다.
+원금 대비 순손익·수익률·최대 낙폭을 반환하며, 웹은 금융 지표를 재계산하지 않는다.
+동기 실행은 3,000 bar·계산 15초 cooperative 제한이며 DB job queue나 worker 실행을 가장하지 않는다.
+실행 config/전략/결과·소스 content hash를 filesystem artifact로 보존하고 checksum 검증으로 조회한다.
+Compose는 migration 완료 후 API를 시작하며 snapshot/run volume을 보존한다. readiness는 실제 필요한
+filesystem 쓰기를 검사하고 DB 작업 처리 상태를 주장하지 않는다.
+
+분봉 업로드는 `1m`/`5m`, 명시적 UTC offset, bar **종료** timestamp 계약이다. 다음 bar open은
+`timestamp - duration`이며 이전 신호 확정 시각과 같을 수 있다(지연 0 근사). 거래소 세션은 뉴욕 시간,
+DAY 주문은 다음 세션 전에 만료한다. calendar·조기폐장·호가·부분 체결은 지원하지 않는다.
+원격 Yahoo는 일봉만 수집한다. 합성 데모는 `synthetic_demo` lineage로 실제 시세와 분리한다.
+
 ## 개요
 
 ```text

@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import ClassVar, Final
+from typing import ClassVar, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -84,6 +84,7 @@ class BacktestConfig(_FrozenModel):
     end_order_policy: EndOrderPolicy = EndOrderPolicy.EXPIRE
     end_position_policy: EndPositionPolicy = EndPositionPolicy.MARK_TO_LAST_CLOSE
     benchmark_instrument_id: str | None = None
+    bar_interval: Literal["1d", "1m", "5m"] = "1d"
 
 
 class OrderIntent(_FrozenModel):

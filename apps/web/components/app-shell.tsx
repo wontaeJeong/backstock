@@ -5,8 +5,8 @@ import { StatusBadge } from "./ui"
 type AppPath = "/" | "/design-system"
 
 const navigationItems = [
-  { href: "/", label: "Foundation" },
-  { href: "/design-system", label: "Components" },
+  { href: "/", label: "전략 연구실" },
+  { href: "/design-system", label: "디자인 구성요소" },
 ] as const satisfies readonly { readonly href: AppPath; readonly label: string }[]
 
 export function AppShell({
@@ -20,7 +20,7 @@ export function AppShell({
           <span className="brand-mark" aria-hidden="true" />
           <span>Stock Strategy Lab</span>
         </div>
-        <nav lang="en">
+        <nav>
           {navigationItems.map(({ href, label }) => (
             <a aria-current={href === currentPath ? "page" : undefined} href={href} key={href}>
               {label}
@@ -28,8 +28,8 @@ export function AppShell({
           ))}
         </nav>
         <div className="sidebar__status">
-          <StatusBadge label="Paper mode" tone="info" />
-          <p>실주문 기능은 비활성화되어 있습니다.</p>
+          <StatusBadge label="연구 모드" tone="info" />
+          <p>실주문·paper broker 기능은 제공하지 않습니다.</p>
         </div>
       </aside>
       {children}

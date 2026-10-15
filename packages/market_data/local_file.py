@@ -18,6 +18,7 @@ from packages.domain.market_data import (
     InstrumentSearchRequest,
     MarketDataResult,
     ProviderCapabilities,
+    TimestampProvenance,
 )
 from packages.market_data.errors import MarketDataError, ProviderErrorCategory
 from packages.market_data.normalization import BarNormalization, bars_from_csv, bars_from_frame
@@ -84,6 +85,11 @@ class LocalFileProvider:
                 retryable=False,
             ) from error
         bars, media_type = self._normalize(payload)
+        if request.interval != "1d" and any(
+            bar.timestamp_provenance is not TimestampProvenance.EXPLICIT_OFFSET for bar in bars
+        ):
+            msg = "intraday timestamps require explicit UTC offsets and close labels"
+            raise self._invalid(msg)
         artifact = self._raw_store.capture(
             provider=self.name,
             provider_version=self.version,
@@ -94,7 +100,8 @@ class LocalFileProvider:
                 "timezone": self._source.instrument.timezone,
                 "start": request.start.isoformat(),
                 "end": request.end.isoformat(),
-                "interval": "1d",
+                "interval": request.interval,
+                "timestamp_label": "close" if request.interval != "1d" else "session_date",
                 "price_adjustment": self._source.price_adjustment.value,
                 "volume_adjustment": self._source.volume_adjustment.value,
                 "adjustment_vintage": "static_file",

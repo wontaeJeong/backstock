@@ -55,7 +55,7 @@ describe("AppShell", () => {
     )
 
     // When
-    const currentLink = screen.getByRole("link", { name: "Components" })
+    const currentLink = screen.getByRole("link", { name: "디자인 구성요소" })
 
     // Then
     expect(currentLink).toHaveAttribute("aria-current", "page")

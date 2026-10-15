@@ -4,6 +4,8 @@
 
 ## 초기 가정
 
+이 절은 최초 기준선이며 아래 날짜별 변경이 우선한다.
+
 - MVP interval은 일봉이다.
 - MVP position은 롱 중심이다.
 - 종가 신호의 기본 체결은 다음 거래일 시가다.
@@ -91,3 +93,20 @@ Validation:
   DB 영속화, update 금지 제약, `/strategies`·`/strategy-versions` CRUD는 Prompt 08에서 추가한다.
 - `POST /strategies/validate`, `GET /strategies/metadata`는 인증/저장 없이 순수 검증·조회만
   수행한다. 사용자 identity 기반 authz는 Prompt 08 보안 slice 범위다.
+
+## 2026-10-16 나스닥 로컬 연구 MVP
+
+- 사용자는 완성된 서비스에서 매매법을 탐색한다. 사전 매매 전략을 요구하지 않고 한국어 조건 폼을 제공한다.
+- 단일 USD·뉴욕 시간대 종목으로 범위를 제한한다. snapshot에 currency를 새로 고정하고 기존 currency
+  미상 snapshot은 simulation에서 재업로드를 요구한다. 기존 불변 manifest는 변경하지 않는다.
+- Yahoo는 실제 일봉, 분봉은 종료 시각/explicit offset 파일 또는 명시적 합성 데모다.
+  원격 분봉 가용성에 의존하거나 일봉을 분봉으로 재표시하지 않는다.
+- 1m/5m next-open의 지연 0 근사는 초단타 실전 검증이 아니다. 호가·실제 지연·부분 체결과
+  거래소 조기폐장 calendar가 없음을 결과 상단에 표시한다. 장 마감 포지션 강제 청산은 하지 않는다.
+- 지표 미준비 상태는 not/all/any에 전파해 준비 이전 주문 생성을 막는다. 미체결 주문 중복도 거절한다.
+- 실행은 동기 3,000 bar와 bar 사이의 15초 cooperative 제한이다. immutable filesystem에
+  request/config/snapshot/전략 hash/소스 hash/결과를 보존한다. DB job queue와 worker는 후속이다.
+- 파일 게시에는 같은 filesystem의 임시 파일과 atomic no-replace link를 사용해 동시 조회가
+  부분 JSON/Parquet를 성공 결과로 읽지 않게 한다.
+- CI는 실제 DB·컨테이너·브라우저를 검증한다. 운영 배포 대상이 없어 CD는 수동 artifact 발행까지이며
+  공개 운영 전 인증·quota·백업과 공급망 정책이 필요하다. 새 PR은 별도 승인 없이 병합하지 않는다.

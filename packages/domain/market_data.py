@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import ClassVar, Final
+from typing import ClassVar, Final, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -93,6 +93,7 @@ class BarRequest(_FrozenModel):
     start: datetime
     end: datetime
     adjustment: AdjustmentMode
+    interval: Literal["1d", "1m", "5m"] = "1d"
 
     @field_validator("start", "end")
     @classmethod

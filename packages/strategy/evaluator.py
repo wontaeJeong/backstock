@@ -60,6 +60,7 @@ class _Evaluation:
     value: bool
     path: str
     detail: str
+    available: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,7 +140,7 @@ class DslStrategyEvaluator(StrategyEvaluator):
         self, context: EvaluationContext, history: tuple[Bar, ...], state: _MarketState
     ) -> tuple[OrderIntent, ...]:
         result = _evaluate_condition(self._definition.entry.condition, history, state, "entry")
-        if not result.value:
+        if not result.available or not result.value:
             return ()
         quantity = _size_position(self._definition.position_sizing, context.portfolio, history)
         if quantity <= 0:
@@ -167,7 +168,7 @@ class DslStrategyEvaluator(StrategyEvaluator):
         condition = self._definition.exit.condition
         if condition is not None:
             result = _evaluate_condition(condition, history, state, "exit")
-            if result.value:
+            if result.available and result.value:
                 trace = _Trace(self._version_id, result.path, f"exit: {result.detail}")
                 order = _build_order(
                     context, Side.SELL, position.quantity, self._definition.order, trace
@@ -193,6 +194,7 @@ def _evaluate_condition(
                 all(result.value for result in results),
                 path,
                 " and ".join(result.detail for result in results),
+                all(result.available for result in results),
             )
         case AnyCondition(conditions=items):
             results = tuple(
@@ -203,10 +205,11 @@ def _evaluate_condition(
                 any(result.value for result in results),
                 path,
                 " or ".join(result.detail for result in results),
+                all(result.available for result in results),
             )
         case NotCondition(condition=inner):
             result = _evaluate_condition(inner, history, state, f"{path}/not")
-            return _Evaluation(not result.value, path, f"not({result.detail})")
+            return _Evaluation(not result.value, path, f"not({result.detail})", result.available)
         case CompareCondition(op=op, left=left, right=right):
             left_value = _resolve_value(left, history, state)
             right_value = _resolve_value(right, history, state)
@@ -214,6 +217,7 @@ def _evaluate_condition(
                 _compare(op, left_value, right_value),
                 f"{path}/{op}",
                 f"{op}(left={left_value}, right={right_value})",
+                left_value is not None and right_value is not None,
             )
         case CrossCondition(op=op, left=left, right=right):
             previous_history = history[:-1]
@@ -225,6 +229,10 @@ def _evaluate_condition(
                 _crosses(op, current_left, current_right, previous_left, previous_right),
                 f"{path}/{op}",
                 f"{op}(prev={previous_left}/{previous_right}, cur={current_left}/{current_right})",
+                all(
+                    item is not None
+                    for item in (current_left, current_right, previous_left, previous_right)
+                ),
             )
 
 

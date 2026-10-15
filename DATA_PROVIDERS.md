@@ -60,6 +60,13 @@ Yahoo 요청은 canonical symbol을 직접 보내지 않는다. effective-dated 
 
 ## LocalFileProvider
 
+로컬 `BarRequest.interval`은 `1d`/`1m`/`5m`를 명시한다. 분봉은 **종료 시각** timestamp와
+명시적 UTC offset이 필수이며 naive timestamp의 자동 시간대 추론을 거부한다. simulation은 뉴욕
+정규장·동일 날짜의 1분/5분 연속 간격을 검사하고 일봉에 하루 여러 bar가 있으면 거부한다.
+Yahoo 원격 경로는 일봉만 제공하며 분봉 요청을 자동 일봉으로 바꾸지 않는다.
+업로드 파일의 실제 시세 출처·기업 이벤트 의미는 사용자가 확인해야 한다. 25 MiB 업로드 제한과
+3,000 bar 실행 제한은 서로 별개다. 파일 전체가 요청 범위 안에 있어야 하며 범위 밖 행은 거부한다.
+
 CSV/Parquet를 읽으며 fixture와 재현성의 기준이다.
 
 필수 컬럼: `timestamp, open, high, low, close, volume`

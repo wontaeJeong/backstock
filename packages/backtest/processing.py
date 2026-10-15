@@ -1,5 +1,6 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from packages.backtest.events import EventKind
 from packages.backtest.execution import (
@@ -36,19 +37,29 @@ def execute_orders(state: EngineState, bar: Bar, config: BacktestConfig) -> None
     for index, order in enumerate(tuple(state.orders)):
         if order.state is not OrderState.ACCEPTED:
             continue
+        if (
+            config.bar_interval != "1d"
+            and order.intent.time_in_force is TimeInForce.DAY
+            and bar.instrument_id == order.intent.instrument_id
+            and bar.timestamp.astimezone(ZoneInfo("America/New_York")).date()
+            > order.intent.submitted_at.astimezone(ZoneInfo("America/New_York")).date()
+        ):
+            state.orders[index] = transition_order(order, OrderState.EXPIRED, "session ended")
+            continue
         decision = execute_order(
             ExecutionRequest(
                 order=order,
                 bar=bar,
                 costs=config.costs,
                 fill_id=f"fill-{len(state.fills) + 1:06d}",
+                bar_duration=timedelta(minutes={"1d": 0, "1m": 1, "5m": 5}[config.bar_interval]),
             )
         )
         match decision:
             case FilledExecution(fill=fill):
                 _apply_execution(state, index, order, fill)
             case PendingExecution(reason="limit_not_touched"):
-                if order.intent.time_in_force is TimeInForce.DAY:
+                if order.intent.time_in_force is TimeInForce.DAY and config.bar_interval == "1d":
                     expired = transition_order(order, OrderState.EXPIRED, "day order expired")
                     state.orders[index] = expired
                     state.record(
@@ -182,6 +193,13 @@ def _apply_execution(state: EngineState, index: int, order: Order, fill: Fill) -
 
 def _accept_intent(state: EngineState, bar: Bar, intent: OrderIntent) -> None:
     order = Order(order_id=f"order-{len(state.orders) + 1:06d}", intent=intent)
+    if any(
+        existing.state is OrderState.ACCEPTED
+        and existing.intent.instrument_id == intent.instrument_id
+        for existing in state.orders
+    ):
+        _reject_order_for_pending(state, order, bar)
+        return
     state.record(
         bar.timestamp,
         EventKind.SIGNAL,
@@ -221,6 +239,17 @@ def _accept_intent(state: EngineState, bar: Bar, intent: OrderIntent) -> None:
         EventKind.ORDER_ACCEPTED,
         "order accepted for a future bar",
         EventDetails(instrument_id=intent.instrument_id, order_id=order.order_id),
+    )
+
+
+def _reject_order_for_pending(state: EngineState, order: Order, bar: Bar) -> None:
+    rejected = transition_order(order, OrderState.REJECTED, "pending order already exists")
+    state.orders.append(rejected)
+    state.record(
+        bar.timestamp,
+        EventKind.ORDER_REJECTED,
+        rejected.state_reason,
+        EventDetails(instrument_id=order.intent.instrument_id, order_id=order.order_id),
     )
 
 

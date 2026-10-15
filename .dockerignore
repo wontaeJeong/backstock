@@ -5,3 +5,14 @@ node_modules
 playwright-report
 test-results
 var
+.env
+.env.*
+**/.next
+**/node_modules
+.superpowers
+**/__pycache__
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.hypothesis
+dist

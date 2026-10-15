@@ -51,3 +51,16 @@ JSON과 `sha256:<hex>` `version_id`를 가진 `StrategyVersion`을 200으로 반
 metadata(`operators`, `indicators`), 4개 템플릿의 canonical JSON(`templates`)을 반환한다.
 
 `/strategies`, `/strategy-versions`의 영속화 CRUD, `/backtest-runs` 이하는 Prompt 08에서 구현한다.
+# 연구용 시뮬레이션 API
+
+- `GET /research/catalog`: 지원 종목·주기·제한·시간대 계약.
+- `POST /simulations`: `{source, symbol, strategy, initial_cash, commission_bps, sell_tax_bps, slippage_bps}`.
+  `source=yfinance`는 timezone-aware `start/end`와 일봉, `source=snapshot`은 업로드 `snapshot_id`,
+  `source=demo`는 명시적 합성 고정 시세를 사용한다. 최대 64 KiB JSON, 단일 USD 종목, 3,000 bar.
+- `GET /simulations/{run_id}`: 저장한 불변 실행 조회. 잘못된 ID/없는 결과는 404, 손상 결과는 409.
+- 응답: `run_id`, `request`, `config`, `manifest`, `result`, `metrics`, `warnings`.
+  Decimal은 JSON 문자열이며 `total_return`, `max_drawdown`, `benchmark_return`는 소수 비율이다.
+  `metrics.net_profit = final_equity - initial_cash`. `result.status`가 succeeded가 아니면 부분 결과다.
+  rate 입력은 bps이고 모든 비용을 표시한다. 슬리피지를 summary 손익에서 다시 차감하지 않는다.
+- `/datasets` query의 `interval=1d|1m|5m`는 파일의 실제 주기다. 분봉 timestamp는 종료 시각이며
+  explicit UTC offset이 필요하다. 원래 filename을 서버 경로로 사용하지 않는다.

@@ -11,6 +11,7 @@ import polars as pl
 from pydantic import BaseModel, ConfigDict, JsonValue, ValidationError
 
 from packages.domain.market_data import AdjustmentMode, Bar, BarRequest, MarketDataResult
+from packages.market_data.artifacts import publish_immutable
 from packages.market_data.raw_store import RequestOptions
 from packages.market_data.validation import (
     ValidationIssue,
@@ -37,6 +38,7 @@ class SnapshotManifest(BaseModel):
     range_start: datetime
     range_end: datetime
     timezone: str
+    currency: str | None = None
     price_adjustment: AdjustmentMode
     volume_adjustment: AdjustmentMode
     row_count: int
@@ -117,6 +119,7 @@ class FileSnapshotStore:
             range_start=request.start,
             range_end=request.end,
             timezone=request.instrument.timezone,
+            currency=request.instrument.currency,
             price_adjustment=result.items[0].price_adjustment,
             volume_adjustment=result.items[0].volume_adjustment,
             row_count=len(result.items),
@@ -170,6 +173,21 @@ class FileSnapshotStore:
             raise SnapshotIntegrityError(snapshot_id, "normalized checksum differs")
         return manifest
 
+    def read_bars(self, snapshot_id: str) -> tuple[SnapshotManifest, tuple[Bar, ...]] | None:
+        """Decode only bytes bound to a validated immutable manifest."""
+        manifest = self.load(snapshot_id)
+        if manifest is None:
+            return None
+        name = f"{manifest.normalized_checksum.removeprefix('sha256:')}.parquet"
+        payload = (self._normalized_root / name).read_bytes()
+        if _checksum(payload) != manifest.normalized_checksum:
+            raise SnapshotIntegrityError(snapshot_id, "normalized checksum changed")
+        frame = pl.read_parquet(BytesIO(payload))
+        bars = tuple(Bar.model_validate(row) for row in frame.to_dicts())
+        if len(bars) != manifest.row_count:
+            raise SnapshotIntegrityError(snapshot_id, "row count differs")
+        return manifest, bars
+
 
 def _parquet_bytes(bars: tuple[Bar, ...]) -> bytes:
     ordered = sorted(bars, key=lambda bar: (bar.timestamp, bar.instrument_id))
@@ -216,7 +234,7 @@ def _canonical_json(value: JsonValue) -> bytes:
 
 
 def _manifest_identity(manifest: SnapshotManifest) -> dict[str, JsonValue]:
-    return {
+    identity: dict[str, JsonValue] = {
         "provider": manifest.provider,
         "provider_version": manifest.provider_version,
         "acquired_at": manifest.acquired_at.isoformat(),
@@ -245,12 +263,11 @@ def _manifest_identity(manifest: SnapshotManifest) -> dict[str, JsonValue]:
         ],
         "storage_uri": manifest.storage_uri,
     }
+    if manifest.currency is not None:
+        identity["currency"] = manifest.currency
+    return identity
 
 
 def _write_once(path: Path, content: bytes) -> None:
-    try:
-        with path.open("xb") as stream:
-            _ = stream.write(content)
-    except FileExistsError:
-        if path.read_bytes() != content:
-            raise SnapshotIntegrityError(path.stem, "write-once artifact collision") from None
+    if not publish_immutable(path, content):
+        raise SnapshotIntegrityError(path.stem, "write-once artifact collision")

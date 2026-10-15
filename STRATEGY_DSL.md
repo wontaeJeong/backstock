@@ -50,7 +50,10 @@
 - 교차: `crosses_above`/`crosses_below` — 이전 bar와 현재 bar에서의 좌/우 값을 비교해 부호 반전을
   감지한다.
 
-조건 트리의 최대 깊이는 8이다. 이를 초과하면 거절한다(`EXCESSIVE_DEPTH`).
+조건 트리의 최대 깊이는 8, 진입·청산 합계 node 수는 64, all/any의 자식은 각각 8개까지다.
+지표 period/shift는 5,000 이하이며 universe는 50개 이하다(웹 simulation은 단일 종목).
+고정 수량은 10억 주 이하, notional은 1조 이하, limit offset은 10,000 bps 미만으로 제한한다.
+숫자 literal의 자릿수와 소수 자리도 제한하여 과도한 Decimal 계산을 거부한다.
 
 ## 지표 (MVP)
 
@@ -69,6 +72,9 @@
 지표는 항상 현재 bar의 close 시점(해당 bar가 확정된 시점)에 평가 가능하다. lookback이 부족하면
 지표는 `null`을 반환하고, 이를 사용하는 비교/교차 조건은 명시적으로 false가 되어 warm-up 기간에는
 아무 주문도 생성되지 않는다.
+
+준비되지 않은 값을 사용하는 조건은 `available=false`도 전파한다. `not`으로 감싸도 매수하지 않으며,
+all/any 내부 조건 중 하나라도 준비되지 않았다면 해당 조건 그룹은 거래를 유발하지 않는다.
 
 ## 리스크(Risk)
 
@@ -110,7 +116,7 @@ stop-loss/take-profit/trailing-stop은 조건이 충족되면 `market`/`limit` `
 - 잘못된 타입 (Pydantic 타입 검증).
 - 0 이하의 period.
 - 음수 shift(미래 참조).
-- 지원하지 않는 timeframe(현재 `1d`만 허용).
+- 지원하지 않는 timeframe(`1d`, `1m`, `5m` 허용; simulation의 snapshot 주기와 일치해야 함).
 - 위험한 sizing(`percent_equity.percent` 또는 `atr_risk.risk_percent`가 1 초과, `percent` 모드
   stop_loss/trailing_stop의 `value`가 100 초과).
 - 8을 초과하는 조건 트리 깊이.
