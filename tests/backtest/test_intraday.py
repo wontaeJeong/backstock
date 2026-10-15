@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from packages.backtest.engine import BacktestEngine
@@ -23,7 +23,8 @@ def test_intraday_day_limit_remains_pending_until_session_end() -> None:
         _input(bars, config), BuyThenHold(1, OrderType.LIMIT, Decimal(95))
     )
     assert len(result.fills) == 1
-    assert result.fills[0].timestamp == times[2] - timedelta(minutes=1)
+    # Open=100 is outside limit=95; only the later range establishes a touch.
+    assert result.fills[0].timestamp == times[2]
     assert result.orders[0].state == "filled"
 
 

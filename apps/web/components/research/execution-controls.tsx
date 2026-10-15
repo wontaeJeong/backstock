@@ -8,49 +8,70 @@ export function ExecutionControls({
   draft: Draft
   update: <K extends keyof Draft>(key: K, value: Draft[K]) => void
 }) {
+  let orderSummary = "JSON 정의를 확인할 수 없습니다. 주문 설정을 완성하세요."
+  if (draft.advancedJson !== undefined) {
+    try {
+      const source: unknown = JSON.parse(draft.advancedJson)
+      if (typeof source === "object" && source !== null && "order" in source)
+        orderSummary = JSON.stringify(source.order, null, 2)
+    } catch {
+      // Never display stale simple-form defaults for incomplete JSON.
+    }
+  }
   return (
     <details className="editor-section editor-disclosure">
       <summary>주문·세션·spread·latency·거래량 제한</summary>
       <div className="form-grid">
-        <label className="form-field">
-          주문 종류
-          <select
-            aria-label="주문 종류"
-            disabled={draft.advancedJson !== undefined}
-            value={draft.orderType}
-            onChange={(e) => update("orderType", e.target.value as Draft["orderType"])}
-          >
-            {["market", "limit", "stop", "stop_limit"].map((v) => (
-              <option key={v}>{v}</option>
-            ))}
-          </select>
-        </label>
-        <label className="form-field">
-          주문 유효기간
-          <select
-            disabled={draft.advancedJson !== undefined}
-            value={draft.tif}
-            onChange={(e) => update("tif", e.target.value as Draft["tif"])}
-          >
-            <option value="day">DAY</option>
-            <option value="gtc">GTC</option>
-          </select>
-        </label>
-        {["limit", "stop_limit"].includes(draft.orderType) && (
-          <Field
-            label="지정가 offset (bps)"
-            disabled={draft.advancedJson !== undefined}
-            value={draft.limitOffset}
-            onChange={(v) => update("limitOffset", v)}
-          />
-        )}
-        {["stop", "stop_limit"].includes(draft.orderType) && (
-          <Field
-            label="stop offset (bps)"
-            disabled={draft.advancedJson !== undefined}
-            value={draft.stopOffset}
-            onChange={(v) => update("stopOffset", v)}
-          />
+        {draft.advancedJson !== undefined ? (
+          <div className="form-field">
+            <p>현재 JSON 주문 설정 · 주문 종류·유효기간·offset은 원본 JSON을 사용합니다.</p>
+            <section aria-label="현재 JSON 주문 설정">
+              <pre className="json-preview">{orderSummary}</pre>
+            </section>
+          </div>
+        ) : (
+          <>
+            <label className="form-field">
+              주문 종류
+              <select
+                aria-label="주문 종류"
+                disabled={draft.advancedJson !== undefined}
+                value={draft.orderType}
+                onChange={(e) => update("orderType", e.target.value as Draft["orderType"])}
+              >
+                {["market", "limit", "stop", "stop_limit"].map((v) => (
+                  <option key={v}>{v}</option>
+                ))}
+              </select>
+            </label>
+            <label className="form-field">
+              주문 유효기간
+              <select
+                disabled={draft.advancedJson !== undefined}
+                value={draft.tif}
+                onChange={(e) => update("tif", e.target.value as Draft["tif"])}
+              >
+                <option value="day">DAY</option>
+                <option value="gtc">GTC</option>
+              </select>
+            </label>
+            {["limit", "stop_limit"].includes(draft.orderType) && (
+              <Field
+                label="지정가 offset (bps)"
+                disabled={draft.advancedJson !== undefined}
+                value={draft.limitOffset}
+                onChange={(v) => update("limitOffset", v)}
+              />
+            )}
+            {["stop", "stop_limit"].includes(draft.orderType) && (
+              <Field
+                label="stop offset (bps)"
+                disabled={draft.advancedJson !== undefined}
+                value={draft.stopOffset}
+                onChange={(v) => update("stopOffset", v)}
+              />
+            )}
+          </>
         )}
         <Field
           label="전체 spread (bps)"

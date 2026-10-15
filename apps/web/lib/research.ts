@@ -289,7 +289,7 @@ export function riskRule(
   period: string,
   kind: "stop_loss" | "take_profit" | "trailing_stop",
 ) {
-  if (mode === "off" || !value) return null
+  if (mode === "off") return null
   z.coerce
     .number()
     .gt(0)

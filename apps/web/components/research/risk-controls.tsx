@@ -65,7 +65,8 @@ export function RiskControls({
         onChange={(v) => update("holdingBars", v)}
       />
       <p className="helper">
-        비우면 보유 기간 제한 없음. 손절·익절·추적 손절은 종가 조건이며 다음 eligible 이벤트에서만
+        최대 보유 bar 수만 비우면 기간 제한 없음. 활성 위험 값·ATR 기간은 필수이며 위험 해제는 ‘사용
+        안 함’을 선택하세요. 손절·익절·추적 손절은 종가 조건이며 다음 eligible 이벤트에서만
         체결합니다. ATR 배수와 기간은 서버 계산에 모두 적용합니다.
       </p>
     </details>

@@ -439,6 +439,16 @@ raw 경계가 reference이고 정확한 limit이 spread 적용 base다(Decimal �
 보정). 충분히 관통한 뒤에도 raw limit에 spread를 다시 더해 자동 미체결시키지 않는다. 이후 adverse
 slippage만 limit으로 제한한다. 실제 quote가 limit 밖이면 quote를 잘라 가짜 체결하지 않는다.
 모든 경우 spread=abs(base-reference)×수량, slippage=abs(execution-base)×수량을 유지한다.
+분봉 LIMIT/STOP_LIMIT은 open 실행-side가 limit을 충족할 때만 open 시각에 체결한다.
+이후 OHLC range touch 체결은 정확한 장중 시각 대신 bar 종료 시각으로 기록하며, 알려진 gap
+trigger의 open 시각은 유지한다. 체결·원장 이벤트·CSV·보유 기간·replay는 같은 fill timestamp를
+사용한다. 종료 시각 원장 이벤트는 close mark를 사용하며 가격·비용 계산은 변경하지 않는다.
+tick/제공 quote의 이벤트 시각과 eligibility 및 same-signal bar 금지 계약은 그대로다.
+
+웹 위험 폼은 명시적인 ‘사용 안 함’만 null로 전송한다. 활성 percent/ATR의 빈 값·공백,
+ATR의 미완성 기간은 실행·저장·실험·전략 JSON 내보내기를 막고, 복구 전 이전 JSON을 대신
+실행하지 않는다. 독립 분기의 유효 편집은 보존한다. JSON 모드의 주문 표시는 간편 폼 기본값이
+아닌 현재 원본 order 요약이며, 불완전 JSON은 확인 불가로 표시한다.
 
 ### Tick/quote 업로드와 원격 분봉
 

@@ -36,6 +36,12 @@ class PendingExecution:
 ExecutionDecision = FilledExecution | PendingExecution
 
 
+@dataclass(frozen=True, slots=True)
+class ExecutionReference:
+    price: Decimal
+    at_open: bool = True
+
+
 def execute_order(request: ExecutionRequest) -> ExecutionDecision:
     order = request.order
     bar = request.bar
@@ -46,14 +52,10 @@ def execute_order(request: ExecutionRequest) -> ExecutionDecision:
     if bar.timestamp <= order.intent.submitted_at or execution_at < earliest:
         return PendingExecution("not_yet_eligible")
     triggered_at = _trigger_time(request)
-    reference_price = _stop_reference(order, bar, request.spread_bps, triggered_at)
-    if isinstance(reference_price, PendingExecution):
-        return reference_price
-    if (
-        order.intent.order_type is OrderType.STOP
-        and order.triggered_at is None
-        and reference_price != bar.open
-    ):
+    reference = _stop_reference(order, bar, request.spread_bps, triggered_at)
+    if isinstance(reference, PendingExecution):
+        return reference
+    if not reference.at_open:
         # A range touch is known only at bar close, not at its open.
         execution_at = bar.timestamp
     triggered = order.intent.order_type in {OrderType.STOP, OrderType.STOP_LIMIT}
@@ -64,7 +66,7 @@ def execute_order(request: ExecutionRequest) -> ExecutionDecision:
         return PendingExecution(
             "volume_cap_all_or_none", triggered=triggered, triggered_at=triggered_at
         )
-    reference_price, base_price = _spread_prices(order, bar, reference_price, request.spread_bps)
+    reference_price, base_price = _spread_prices(order, bar, reference.price, request.spread_bps)
     execution_price = _slipped_price(order, base_price, request.costs.slippage_bps)
     limit = order.intent.limit_price
     if limit is not None and (
@@ -95,10 +97,10 @@ def execute_order(request: ExecutionRequest) -> ExecutionDecision:
     )
 
 
-def _reference_price(order: Order, bar: Bar, spread_bps: Decimal) -> Decimal | None:
+def _reference_price(order: Order, bar: Bar, spread_bps: Decimal) -> ExecutionReference | None:
     match order.intent.order_type:
         case OrderType.MARKET | OrderType.STOP:
-            return bar.open
+            return ExecutionReference(bar.open)
         case OrderType.LIMIT | OrderType.STOP_LIMIT:
             limit = order.intent.limit_price
             if limit is None:
@@ -106,13 +108,17 @@ def _reference_price(order: Order, bar: Bar, spread_bps: Decimal) -> Decimal | N
             buy = order.intent.side is Side.BUY
             if bar.bid is not None and bar.ask is not None:
                 side_price = bar.ask if buy else bar.bid
-                return bar.open if (side_price <= limit if buy else side_price >= limit) else None
+                return (
+                    ExecutionReference(bar.open)
+                    if (side_price <= limit if buy else side_price >= limit)
+                    else None
+                )
             factor = 1 + (1 if buy else -1) * spread_bps / BASIS_POINTS / 2
             open_touched = bar.open * factor <= limit if buy else bar.open * factor >= limit
             if open_touched:
-                return bar.open
+                return ExecutionReference(bar.open)
             touched = bar.low * factor <= limit if buy else bar.high * factor >= limit
-            return limit / factor if touched else None
+            return ExecutionReference(limit / factor, at_open=False) if touched else None
 
 
 def _trigger_time(request: ExecutionRequest) -> datetime | None:
@@ -126,7 +132,7 @@ def _trigger_time(request: ExecutionRequest) -> datetime | None:
 
 def _stop_reference(
     order: Order, bar: Bar, spread_bps: Decimal, triggered_at: datetime | None
-) -> Decimal | PendingExecution:
+) -> ExecutionReference | PendingExecution:
     stop = order.intent.stop_price
     if stop is None or order.triggered_at is not None:
         return _reference_price(order, bar, spread_bps) or PendingExecution("limit_not_touched")
@@ -136,7 +142,7 @@ def _stop_reference(
     if not touched:
         return PendingExecution("stop_not_triggered")
     if order.intent.order_type is OrderType.STOP:
-        return bar.open if gap else stop
+        return ExecutionReference(bar.open if gap else stop, at_open=gap)
     if not gap:
         return PendingExecution(
             "stop_limit_intrabar_ambiguous", triggered=True, triggered_at=triggered_at

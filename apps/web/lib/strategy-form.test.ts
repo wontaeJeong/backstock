@@ -162,3 +162,30 @@ for (const invalidRisk of ["stopLoss", "takeProfit", "trailingStop"] as const) {
     })
   }
 }
+
+for (const importedMode of [false, true])
+  for (const [valueKey, modeKey, periodKey] of [
+    ["stopLoss", "stopLossMode", "stopLossPeriod"],
+    ["takeProfit", "takeProfitMode", "takeProfitPeriod"],
+    ["trailingStop", "trailingMode", "trailingPeriod"],
+  ] as const)
+    for (const mode of ["percent", "atr_multiple"] as const)
+      for (const blank of ["", "   "])
+        it(`I2 ${importedMode}/${valueKey}/${mode}/${JSON.stringify(blank)} blocks incomplete risk`, () => {
+          let draft = importedMode ? imported() : defaultDraft()
+          draft = updateDraftSetting(draft, modeKey, mode)
+          draft = updateDraftSetting(draft, valueKey, blank)
+          expect(() => buildStrategy(draft)).toThrow()
+          expect(() => buildRequest(draft)).toThrow()
+          draft = updateDraftSetting(draft, "quantity", "7")
+          draft = updateDraftSetting(draft, "weekdays", [1, 4])
+          expect(() => buildRequest(draft)).toThrow()
+          draft = updateDraftSetting(draft, valueKey, "8")
+          expect(() => buildRequest(draft)).not.toThrow()
+          if (mode === "atr_multiple") {
+            draft = updateDraftSetting(draft, periodKey, blank)
+            expect(() => buildRequest(draft)).toThrow()
+          }
+          draft = updateDraftSetting(draft, modeKey, "off")
+          expect(() => buildRequest(draft)).not.toThrow()
+        })

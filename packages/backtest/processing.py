@@ -79,6 +79,7 @@ def execute_orders(state: EngineState, bar: Bar, config: BacktestConfig) -> None
                         "stop triggered",
                         EventDetails(order_id=order.order_id, instrument_id=bar.instrument_id),
                     )
+                _mark_execution(state, fill, bar, config)
                 _apply_execution(state, index, order, fill)
             case PendingExecution(
                 reason=reason, triggered=triggered, triggered_at=triggered_at
@@ -110,6 +111,13 @@ def execute_orders(state: EngineState, bar: Bar, config: BacktestConfig) -> None
                     )
             case PendingExecution():
                 continue
+
+
+def _mark_execution(state: EngineState, fill: Fill, bar: Bar, config: BacktestConfig) -> None:
+    # A range-touch fill is booked at close; do not value its ledger event
+    # with the earlier, now stale open mark. Daily/tick semantics are unchanged.
+    if config.bar_interval in {"1m", "5m"} and fill.timestamp == bar.timestamp:
+        state.marks[bar.instrument_id] = bar.close
 
 
 def process_decisions(
