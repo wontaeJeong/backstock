@@ -7,7 +7,94 @@ import {
   paperMutation,
   strategyJson,
 } from "./features"
+import { provenanceLabel } from "./provenance"
 import { buildRequest, buildStrategy, defaultDraft } from "./research"
+import { updateDraftSetting } from "./strategy-form"
+
+it("I4 출처는 snapshot 재사용 방식이 아니라 원래 provider로 구분한다", () => {
+  expect(provenanceLabel("yfinance")).toContain("Yahoo")
+  expect(provenanceLabel("local_file")).toContain("사용자 파일")
+  expect(provenanceLabel("unknown_private_provider")).not.toContain("Yahoo")
+  expect(provenanceLabel("unknown_private_provider")).toContain("미확인")
+})
+it("I2 고정 수량·금액·ATR 예산과 ATR/trailing 위험을 폼 요청으로 만든다", () => {
+  const base = {
+    ...defaultDraft(),
+    sizingMethod: "fixed_quantity" as const,
+    quantity: "2",
+    notional: "500.00000001",
+    riskPercent: "1.25",
+    sizingAtrPeriod: "17",
+    sizingAtrMultiple: "2.123456789012",
+    stopLossMode: "atr_multiple" as const,
+    stopLoss: "2.5",
+    stopLossPeriod: "19",
+    takeProfitMode: "atr_multiple" as const,
+    takeProfit: "4.5",
+    takeProfitPeriod: "21",
+    trailingMode: "atr_multiple" as const,
+    trailingStop: "3.25",
+    trailingPeriod: "23",
+  }
+  expect(buildStrategy(base).position_sizing).toEqual({ method: "fixed_quantity", quantity: 2 })
+  expect(buildStrategy({ ...base, sizingMethod: "fixed_notional" }).position_sizing).toEqual({
+    method: "fixed_notional",
+    notional: "500.00000001",
+  })
+  expect(buildStrategy({ ...base, sizingMethod: "atr_risk" }).position_sizing).toEqual({
+    method: "atr_risk",
+    risk_percent: "0.0125",
+    atr_period: 17,
+    atr_multiple: "2.123456789012",
+  })
+  expect(buildStrategy(base)["risk"]).toMatchObject({
+    stop_loss: { mode: "atr_multiple", value: "2.5", atr_period: 19 },
+    take_profit: { mode: "atr_multiple", value: "4.5", atr_period: 21 },
+    trailing_stop: { mode: "atr_multiple", value: "3.25", atr_period: 23 },
+  })
+  expect(() =>
+    buildStrategy({ ...base, stopLossMode: "percent", stopLossPeriod: "" }),
+  ).not.toThrow()
+  expect(() =>
+    buildStrategy({ ...base, stopLossMode: "atr_multiple", stopLossPeriod: "" }),
+  ).toThrow()
+})
+it("I2 중첩 정의의 sizing/risk 폼 편집은 나머지 AST·세션·Decimal을 보존한다", () => {
+  const original = {
+    ...buildStrategy(defaultDraft()),
+    entry: {
+      condition: {
+        op: "not",
+        condition: {
+          op: "gt",
+          left: { type: "bar_field", field: "close" },
+          right: { type: "constant", value: "100.000000000001" },
+        },
+      },
+    },
+    position_sizing: { method: "fixed_notional", notional: "500.00000001" },
+    risk: {
+      stop_loss: { mode: "atr_multiple", value: "2.000000000001", atr_period: 19 },
+      trailing_stop: { mode: "percent", value: "5.000000000001", atr_period: 17 },
+    },
+    session: { weekdays: [1, 3], entry_start: "09:40", entry_end: "15:00", flatten_at: "15:50" },
+  }
+  const imported = importDraft(defaultDraft(), JSON.stringify(original))
+  expect(imported.sizingMethod).toBe("fixed_notional")
+  expect(imported.notional).toBe("500.00000001")
+  expect(imported.stopLossPeriod).toBe("19")
+  expect(buildStrategy(imported)).toEqual(original)
+  const changed = buildStrategy(updateDraftSetting(imported, "notional", "600.00000001"))
+  expect(changed.entry).toEqual(original.entry)
+  expect(changed["session"]).toEqual(original.session)
+  expect(changed["risk"]).toEqual(original.risk)
+  expect(changed.position_sizing).toEqual({ method: "fixed_notional", notional: "600.00000001" })
+  expect(buildStrategy(updateDraftSetting(imported, "weekdays", [0, 4]))["session"]).toEqual({
+    ...original.session,
+    weekdays: [0, 4],
+  })
+  expect(() => buildStrategy(updateDraftSetting(imported, "notional", ""))).toThrow()
+})
 
 it("tick execution options and actual MACD parameters reach request", () => {
   const draft = {

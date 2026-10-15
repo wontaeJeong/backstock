@@ -29,9 +29,10 @@ export function StrategyJson({
       {feedback}
       <p role="status">{notice}</p>
       <p className="helper">
-        fixed_quantity / fixed_notional / percent_equity / atr_risk, ATR·trailing risk, 중첩
-        all/any/not, 요일은 전체 JSON으로 편집할 수 있습니다. JSON 모드에서는 위 간편 전략 폼 대신
-        이 정의만 실행·저장·실험에 사용합니다. 데이터·원금·실행 비용은 위 설정을 사용합니다.
+        기본 수량·금액·자산 비중·ATR 위험 예산과 손절·익절·추적 손절·세션은 한국어 폼에서
+        편집합니다. 중첩 all/any/not 조건은 JSON으로 손실 없이 보존하며 수량·위험·세션 폼은 원본의
+        해당 분기만 갱신합니다. 실행·저장·실험은 같은 현재 정의를 사용합니다. 데이터·원금·실행
+        비용은 별도 설정입니다.
       </p>
       <label className="form-field">
         고급 전략 JSON
@@ -44,7 +45,7 @@ export function StrategyJson({
       </label>
       <div className="starter-buttons">
         <ActionButton
-          disabled={busy}
+          disabled={busy || Boolean(draft.formError)}
           onClick={() =>
             void act(async () => {
               await api("strategies/validate", strategyJson(text))
@@ -55,6 +56,7 @@ export function StrategyJson({
           JSON 검증
         </ActionButton>
         <ActionButton
+          disabled={Boolean(draft.formError)}
           onClick={() => void act(async () => downloadJson(strategyJson(text), "strategy.json"))}
         >
           전략 JSON 내보내기
@@ -87,7 +89,8 @@ export function StrategyJson({
       </label>
       {draft.advancedJson !== undefined && (
         <p className="notice">
-          고급 JSON 모드 활성 · 간편 조건·sizing·risk 폼 변경은 이 정의를 덮어쓰지 않습니다.
+          고급 JSON 모드 활성 · 중첩 조건은 보존합니다. 수량·위험·세션 폼은 해당 JSON 분기에
+          반영됩니다.
         </p>
       )}
     </section>

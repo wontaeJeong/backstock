@@ -1,6 +1,6 @@
 /* biome-ignore-all lint/complexity/useLiteralKeys: TypeScript requires indexed access for server JSON records. */
 "use client"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { pageSchema } from "../../lib/feature-schemas"
 import { api, downloadJson, type JsonObject } from "../../lib/features"
 import { type SimulationReport, simulationReportSchema } from "../../lib/research"
@@ -20,22 +20,35 @@ export function LibraryPanel({
 }) {
   const [kind, setKind] = useState("strategies"),
     [q, setQ] = useState(""),
+    [submitted, setSubmitted] = useState(""),
     [page, setPage] = useState(1),
     [archived, setArchived] = useState(false)
-  const [data, setData] = useState<ReturnType<typeof pageSchema.parse>>(),
+  const [loaded, setData] = useState<{ key: string; data: ReturnType<typeof pageSchema.parse> }>(),
     [notice, setNotice] = useState("")
   const { busy, act, feedback } = useOperation(true)
+  const scope = JSON.stringify([kind, submitted, archived]),
+    scopeRef = useRef(scope),
+    sequence = useRef(0)
+  scopeRef.current = scope
+  const data = loaded?.key === `${scope}:${page}` ? loaded.data : undefined
   const load = useCallback(
     async (p: number) => {
-      setData(
-        pageSchema.parse(
+      if (scopeRef.current !== scope) return
+      const token = ++sequence.current
+      setData(undefined)
+      try {
+        const result = pageSchema.parse(
           await api(
-            `research/library/${kind}?${new URLSearchParams({ q, page: String(p), page_size: "25", archived: String(archived) })}`,
+            `research/library/${kind}?${new URLSearchParams({ q: submitted, page: String(p), page_size: "25", archived: String(archived) })}`,
           ),
-        ),
-      )
+        )
+        if (token === sequence.current && scopeRef.current === scope)
+          setData({ key: `${scope}:${p}`, data: result })
+      } catch (error) {
+        if (token === sequence.current && scopeRef.current === scope) throw error
+      }
     },
-    [kind, q, archived],
+    [kind, submitted, archived, scope],
   )
   // A new category always reloads server state; search is explicitly submitted.
   useEffect(() => {
@@ -53,7 +66,14 @@ export function LibraryPanel({
       </h2>
       {feedback}
       <p role="status">{notice}</p>
-      <fieldset disabled={busy}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          setPage(1)
+          if (q === submitted) void act(() => load(1))
+          else setSubmitted(q)
+        }}
+      >
         <label className="form-field">
           보관함 종류
           <select value={kind} onChange={(e) => setKind(e.target.value)}>
@@ -72,16 +92,11 @@ export function LibraryPanel({
           보관된 항목
         </label>
         <div className="starter-buttons">
-          <ActionButton
-            onClick={() =>
-              void act(async () => {
-                setPage(1)
-                await load(1)
-              })
-            }
-          >
-            검색
-          </ActionButton>
+          <ActionButton type="submit">검색</ActionButton>
+        </div>
+      </form>
+      <fieldset disabled={busy}>
+        <div className="starter-buttons">
           <ActionButton
             onClick={() =>
               void act(async () => {
@@ -95,7 +110,13 @@ export function LibraryPanel({
           </ActionButton>
         </div>
         <p>변경 저장은 새 불변 버전입니다. 보관은 삭제가 아니며 원래 실행 근거를 유지합니다.</p>
-        {!data?.items.length && <p>일치하는 항목이 없습니다.</p>}
+        <p>
+          제출된 검색: {submitted || "전체"} · 현재 페이지 {page}
+        </p>
+        {data && !data.items.length && <p>일치하는 항목이 없습니다.</p>}
+        {!data && (
+          <p>이 조건의 결과를 아직 표시할 수 없습니다. 조회 중이거나 오류 안내를 확인하세요.</p>
+        )}
         <ul className="library-list">
           {data?.items.map((row) => (
             <li key={identity(row)}>
@@ -113,15 +134,18 @@ export function LibraryPanel({
                     void act(async () => {
                       if (kind === "strategies") {
                         const full = await api(`research/library/strategies/${identity(row)}`)
+                        if (scopeRef.current !== scope) return
                         onStrategy(full["definition"])
                         setNotice("전략 불러오기 완료 · 고급 JSON에서 전체 AST 편집")
                       } else if (kind === "datasets") {
                         onSnapshot(row)
                         setNotice("snapshot 재사용 선택 완료")
                       } else {
-                        onRun(
-                          simulationReportSchema.parse(await api(`simulations/${identity(row)}`)),
+                        const result = simulationReportSchema.parse(
+                          await api(`simulations/${identity(row)}`),
                         )
+                        if (scopeRef.current !== scope) return
+                        onRun(result)
                         setNotice("실행 불러오기 완료")
                       }
                     })
@@ -138,6 +162,7 @@ export function LibraryPanel({
                     onClick={() =>
                       void act(async () => {
                         const full = await api(`research/library/strategies/${identity(row)}`)
+                        if (scopeRef.current !== scope) return
                         const def = full["definition"] as JsonObject
                         onStrategy({ ...def, name: `${String(def["name"])} 복제` })
                         setNotice("복제본을 편집 중입니다. 저장하면 새 버전입니다.")

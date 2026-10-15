@@ -71,25 +71,42 @@ export function ExecutionControls({
           <>
             <Field
               label="뉴욕 진입 시작 (HH:MM)"
-              disabled={draft.advancedJson !== undefined}
               value={draft.entryStart}
               onChange={(v) => update("entryStart", v)}
             />
             <Field
               label="뉴욕 진입 종료 (HH:MM)"
-              disabled={draft.advancedJson !== undefined}
               value={draft.entryEnd}
               onChange={(v) => update("entryEnd", v)}
             />
             <Field
               label="뉴욕 마감 청산 신호 (HH:MM)"
-              disabled={draft.advancedJson !== undefined}
               value={draft.flattenAt}
               onChange={(v) => update("flattenAt", v)}
             />
           </>
         )}
       </div>
+      <fieldset className="editor-fieldset">
+        <legend>뉴욕 진입 요일</legend>
+        {["월", "화", "수", "목", "금"].map((label, index) => (
+          <label key={label}>
+            <input
+              type="checkbox"
+              checked={draft.weekdays.includes(index)}
+              onChange={(e) =>
+                update(
+                  "weekdays",
+                  e.target.checked
+                    ? [...draft.weekdays, index].sort()
+                    : draft.weekdays.filter((v) => v !== index),
+                )
+              }
+            />
+            {label}
+          </label>
+        ))}
+      </fieldset>
       <p className="helper">
         quote가 있으면 bid/ask를 사용하고 spread를 중복 적용하지 않습니다. latency는 다음 eligible
         이벤트/open까지 올림, 거래량은 전량 또는 미체결 시나리오입니다. 마감 청산도 다음 이벤트가

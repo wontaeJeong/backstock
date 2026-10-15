@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { provenanceLabel } from "../../lib/provenance"
 import { money, percent, type SimulationReport } from "../../lib/research"
 import { ActionButton, StatusBadge } from "../ui"
 import { EquityChart } from "./equity-chart"
@@ -94,13 +95,7 @@ export function ResultView({
         <span>
           {report.manifest.interval} · {report.manifest.row_count}개 bar · USD
         </span>
-        <span>
-          {report.manifest.provider === "synthetic_demo"
-            ? "합성 데이터 · 실제 시세 아님"
-            : report.manifest.provider === "local_file"
-              ? "사용자 파일 · 시세 출처 미검증"
-              : `${report.manifest.provider} 과거 데이터`}
-        </span>
+        <span>{provenanceLabel(report.manifest.provider)}</span>
       </div>
       <div className="result-limits">
         <p>{report.warnings[0]}</p>

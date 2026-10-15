@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { z } from "zod"
 import { analysisSchema, barsSchema, pageSchema } from "../../lib/feature-schemas"
 import { api, endpoint, type JsonObject } from "../../lib/features"
+import { provenanceLabel } from "../../lib/provenance"
 import { type SimulationReport, simulationReportSchema } from "../../lib/research"
 import { ActionButton } from "../ui"
 import { display, RawArtifact, Records, Statistics, useOperation, Warnings } from "./panel-kit"
@@ -89,6 +90,21 @@ export function AnalysisPanel({
   report: SimulationReport | undefined
   onRun: (r: SimulationReport) => void
 }) {
+  return (
+    <OwnedAnalysisPanel
+      key={`${report?.run_id ?? "none"}:${report?.manifest.snapshot_id ?? "none"}`}
+      report={report}
+      onRun={onRun}
+    />
+  )
+}
+function OwnedAnalysisPanel({
+  report,
+  onRun,
+}: {
+  report: SimulationReport | undefined
+  onRun: (r: SimulationReport) => void
+}) {
   const [analysis, setAnalysis] = useState<z.infer<typeof analysisSchema>>(),
     [bars, setBars] = useState<z.infer<typeof barsSchema>>(),
     [page, setPage] = useState(1),
@@ -101,8 +117,21 @@ export function AnalysisPanel({
     [qqqPage, setQqqPage] = useState(1),
     [qqqTotal, setQqqTotal] = useState(0)
   const [selected, setSelected] = useState<string[]>([]),
-    [compare, setCompare] = useState<JsonObject>(),
-    [benchmark, setBenchmark] = useState<JsonObject>()
+    [compareResult, setCompare] = useState<{ key: string; data: JsonObject }>(),
+    [benchmarkResult, setBenchmark] = useState<{ key: string; data: JsonObject }>()
+  const compareKey = [...selected].sort().join(","),
+    benchmarkKey = `${report?.run_id}:${snapshot}`
+  const compare = compareResult?.key === compareKey ? compareResult.data : undefined
+  const benchmark = benchmarkResult?.key === benchmarkKey ? benchmarkResult.data : undefined
+  const loadSequence = useRef(0),
+    compareSequence = useRef(0),
+    benchmarkSequence = useRef(0)
+  function selectRuns(next: string[]) {
+    compareSequence.current++
+    setCompare(undefined)
+    setSelected(next)
+    localStorage.setItem("research-compare", JSON.stringify(next))
+  }
   const { busy, act, feedback } = useOperation(true)
   const titleRef = useRef<HTMLHeadingElement>(null)
   const analyzedRun = analysis?.run_id
@@ -115,12 +144,25 @@ export function AnalysisPanel({
   const load = useCallback(
     async (p = 1) => {
       if (!report) return
+      const sequence = ++loadSequence.current
+      setAnalysis(undefined)
+      setBars(undefined)
+      setPage(p)
+      setCursor(1)
       const [a, b] = await Promise.all([
         api(`research/runs/${report.run_id}/analysis`),
         api(`research/datasets/${report.manifest.snapshot_id}/bars?page=${p}&page_size=25`),
       ])
-      setAnalysis(analysisSchema.parse(a))
-      setBars(barsSchema.parse(b))
+      if (sequence !== loadSequence.current) return
+      const nextAnalysis = analysisSchema.parse(a),
+        nextBars = barsSchema.parse(b)
+      if (
+        nextAnalysis.run_id !== report.run_id ||
+        nextBars.snapshot_id !== report.manifest.snapshot_id
+      )
+        throw new Error("응답 실행·snapshot 식별자가 선택과 다릅니다.")
+      setAnalysis(nextAnalysis)
+      setBars(nextBars)
       setPage(p)
       setCursor(1)
     },
@@ -148,7 +190,7 @@ export function AnalysisPanel({
         상세 분석
       </h2>
       {feedback}
-      <fieldset disabled={busy}>
+      <fieldset aria-busy={busy}>
         <p>
           통계는 서버의 실제 평가·FIFO 청산 lot 결과입니다. null은 0이 아닙니다. 합성 데이터와 같은
           패턴 상관은 실제 성과·분산 효과가 아닙니다.
@@ -157,12 +199,9 @@ export function AnalysisPanel({
         {analysis && (
           <>
             <p className="notice">
-              {report?.manifest.provider === "synthetic_demo"
-                ? "합성 데이터 · 실제 시세 아님"
-                : report?.request.source === "snapshot"
-                  ? "사용자 파일 · 시세 출처 미검증"
-                  : "Yahoo 과거 시세 · 현재 거래소 가격 아님"}{" "}
-              · 실행 상태 {report?.result.status} · {report?.manifest.provider}
+              {provenanceLabel(report?.manifest.provider ?? "unknown")} · 실행 상태{" "}
+              {report?.result.status} · {report?.manifest.provider}
+              {report?.request.source === "snapshot" ? " · 저장 snapshot 재사용" : ""}
             </p>
             <h3>핵심 결과 · 서버 계산</h3>
             <p className="helper">
@@ -280,14 +319,17 @@ export function AnalysisPanel({
             />
             <Records title="원본 OHLC / tick·quote" items={bars.items} />
             <div className="starter-buttons">
-              <ActionButton disabled={page === 1} onClick={() => void act(() => load(page - 1))}>
+              <ActionButton
+                disabled={busy || page === 1}
+                onClick={() => void act(() => load(page - 1))}
+              >
                 이전 가격 창
               </ActionButton>
               <span>
                 {page} · 전체 {bars.total}개
               </span>
               <ActionButton
-                disabled={page * 25 >= bars.total}
+                disabled={busy || page * 25 >= bars.total}
                 onClick={() => void act(() => load(page + 1))}
               >
                 다음 가격 창
@@ -303,16 +345,14 @@ export function AnalysisPanel({
             onClick={() => {
               if (!report) return
               const next = [...selected, report.run_id].slice(-8)
-              setSelected(next)
-              localStorage.setItem("research-compare", JSON.stringify(next))
+              selectRuns(next)
             }}
           >
             현재 실행을 비교에 추가
           </ActionButton>
           <ActionButton
             onClick={() => {
-              setSelected([])
-              localStorage.setItem("research-compare", "[]")
+              selectRuns([])
             }}
           >
             비교 선택 초기화
@@ -341,8 +381,7 @@ export function AnalysisPanel({
                       const next = e.target.checked
                         ? [...selected, id].slice(-8)
                         : selected.filter((v) => v !== id)
-                      setSelected(next)
-                      localStorage.setItem("research-compare", JSON.stringify(next))
+                      selectRuns(next)
                     }}
                   />
                   {String(r["run_id"]).slice(0, 16)} ·{" "}
@@ -390,9 +429,22 @@ export function AnalysisPanel({
             </ActionButton>
           </div>
           <ActionButton
-            disabled={selected.length < 2}
+            disabled={busy || selected.length < 2}
             onClick={() =>
-              void act(async () => setCompare(await api("research/compare", { run_ids: selected })))
+              void act(async () => {
+                const sequence = ++compareSequence.current
+                setCompare(undefined)
+                const result = await api("research/compare", { run_ids: selected })
+                if (sequence !== compareSequence.current) return
+                const ids = z
+                  .array(z.object({ run_id: z.string() }))
+                  .parse(result["rows"])
+                  .map((r) => r.run_id)
+                  .sort()
+                  .join(",")
+                if (ids !== compareKey) throw new Error("비교 응답 실행 식별자가 선택과 다릅니다.")
+                setCompare({ key: compareKey, data: result })
+              })
             }
           >
             선택 실행 비교
@@ -448,7 +500,14 @@ export function AnalysisPanel({
           </div>
           <label className="form-field">
             QQQ snapshot 선택 (업로드 실행은 필수)
-            <select value={snapshot} onChange={(e) => setSnapshot(e.target.value)}>
+            <select
+              value={snapshot}
+              onChange={(e) => {
+                benchmarkSequence.current++
+                setBenchmark(undefined)
+                setSnapshot(e.target.value)
+              }}
+            >
               <option value="">Yahoo 별도 취득 / demo 별도 합성</option>
               {snapshot && !qqq.some((s) => s["snapshot_id"] === snapshot) && (
                 <option value={snapshot}>
@@ -464,16 +523,23 @@ export function AnalysisPanel({
             </select>
           </label>
           <ActionButton
-            disabled={!report}
+            disabled={busy || !report}
             onClick={() =>
               void act(async () => {
-                setBenchmark(
-                  await api("research/benchmark", {
-                    run_id: report?.run_id,
-                    benchmark_symbol: "QQQ",
-                    ...(snapshot ? { snapshot_id: snapshot } : {}),
-                  }),
+                const sequence = ++benchmarkSequence.current
+                setBenchmark(undefined)
+                const result = await api("research/benchmark", {
+                  run_id: report?.run_id,
+                  benchmark_symbol: "QQQ",
+                  ...(snapshot ? { snapshot_id: snapshot } : {}),
+                })
+                if (sequence !== benchmarkSequence.current) return
+                if (
+                  result["run_id"] !== report?.run_id ||
+                  (snapshot && result["snapshot_id"] !== snapshot)
                 )
+                  throw new Error("QQQ 응답 식별자가 선택과 다릅니다.")
+                setBenchmark({ key: benchmarkKey, data: result })
               })
             }
           >

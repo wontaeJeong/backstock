@@ -7,6 +7,12 @@ Task 1/2/3 backend 계약. `/openapi.json`에 모든 요청·응답 schema가 �
 
 ## 공통 요청
 
+웹은 기본 sizing/risk/session을 한국어 폼으로 작성한다. fixed quantity는 정수, fixed notional은 USD
+Decimal 문자열이며 equity/ATR risk 예산의 UI %만 정확한 문자열 단위 변환으로 비율에 매핑한다.
+ATR sizing의 risk_percent/atr_period/atr_multiple와 각 risk rule의 mode/value/atr_period를 모두 전송한다.
+가져온 정의의 다른 AST/metadata·session 필드는 유지하며 응답 run/snapshot ID가 현재 대상과 다르면
+분석·가격·CSV를 표시하지 않는다. wire 필드·서버 금융 계산은 이 수정에서 변경하지 않았다.
+
 기존 `POST /simulations`와 `GET /simulations/{run_id}`에 선택 필드를 하위 호환으로 추가한다.
 `SimulationRequest`와 `StrategyDefinition`, `SimulationReport`, `SnapshotManifest`의 정확한 schema는
 OpenAPI의 같은 이름을 재사용한다. 아래 `base`는 완전한 실행 가능 요청 예시다.

@@ -7,6 +7,7 @@ import { api } from "../../lib/features"
 import { type Draft, symbols } from "../../lib/research"
 import { ActionButton, FormField } from "../ui"
 import { Field, useOperation } from "./panel-kit"
+import { SizingControls } from "./sizing-controls"
 
 export function DataControls({
   draft,
@@ -198,20 +199,8 @@ export function DataControls({
           onChange={(event) => update("initialCash", event.target.value)}
           required
         />
-        <FormField
-          id="allocation"
-          disabled={draft.advancedJson !== undefined}
-          label="매수 시 자산 사용 비중 (%)"
-          type="number"
-          min="0.01"
-          max="100"
-          step="0.01"
-          value={draft.allocation}
-          onChange={(event) => update("allocation", event.target.value)}
-          helper="다음 시가 상승·비용으로 현금이 부족하면 주문이 거절될 수 있습니다."
-          required
-        />
       </div>
+      <SizingControls draft={draft} update={update} />
     </section>
   )
 }

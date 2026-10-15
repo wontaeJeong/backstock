@@ -1,6 +1,6 @@
 /* biome-ignore-all lint/complexity/useLiteralKeys: TypeScript requires indexed access for server JSON records. */
 "use client"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { z } from "zod"
 import { pageSchema, paperSchema } from "../../lib/feature-schemas"
 import { api, type JsonObject, paperMutation } from "../../lib/features"
@@ -8,10 +8,29 @@ import { ActionButton } from "../ui"
 import { Field, RawArtifact, Records, useOperation } from "./panel-kit"
 
 export function PaperPanel() {
-  const [account, setAccount] = useState<z.infer<typeof paperSchema>>(),
+  const [loadedAccount, setAccount] = useState<z.infer<typeof paperSchema>>(),
     [list, setList] = useState<z.infer<typeof pageSchema>>(),
     [page, setPage] = useState(1),
     [chosen, setChosen] = useState("")
+  const account = loadedAccount?.account_id === chosen ? loadedAccount : undefined
+  const selectedAccount = useRef(""),
+    getSequence = useRef(0)
+  const [orderPage, setOrderPage] = useState(1),
+    [orderQuery, setOrderQuery] = useState("")
+  const orders = [...(account?.orders ?? [])]
+    .reverse()
+    .filter((o) => JSON.stringify(o).toLocaleLowerCase().includes(orderQuery.toLocaleLowerCase()))
+  const orderPages = Math.max(1, Math.ceil(orders.length / 25)),
+    visiblePage = Math.min(orderPage, orderPages)
+  function chooseAccount(id: string) {
+    selectedAccount.current = id
+    getSequence.current++
+    setChosen(id)
+    setRetry(undefined)
+    setReconciliation(undefined)
+    setOrderPage(1)
+    setOrderQuery("")
+  }
   const [name, setName] = useState("오프라인 연습"),
     [cash, setCash] = useState("1000"),
     [commission, setCommission] = useState("1"),
@@ -29,9 +48,26 @@ export function PaperPanel() {
   const loadList = async (p = page) =>
     setList(pageSchema.parse(await api(`paper/accounts?page=${p}&page_size=25`)))
   async function get(id = chosen) {
+    if (selectedAccount.current !== id) return
+    const sequence = ++getSequence.current
+    setAccount(undefined)
     const next = paperSchema.parse(await api(`paper/accounts/${id}`))
+    if (sequence !== getSequence.current || selectedAccount.current !== id) return
+    if (next.account_id !== id) throw new Error("현재 계좌 응답 식별자가 선택과 다릅니다.")
     setAccount(next)
-    setChosen(next.account_id)
+    setOrderPage((old) =>
+      Math.min(
+        old,
+        Math.max(
+          1,
+          Math.ceil(
+            next.orders.filter((o) =>
+              JSON.stringify(o).toLocaleLowerCase().includes(orderQuery.toLocaleLowerCase()),
+            ).length / 25,
+          ),
+        ),
+      ),
+    )
     localStorage.setItem("research-paper", next.account_id)
     setReconciliation(undefined)
   }
@@ -40,7 +76,10 @@ export function PaperPanel() {
     void act(async () => {
       await loadList()
       const id = localStorage.getItem("research-paper")
-      if (id) await get(id)
+      if (id) {
+        chooseAccount(id)
+        await get(id)
+      }
     })
   }, [])
   async function mutate(
@@ -55,9 +94,27 @@ export function PaperPanel() {
       body: { ...body, idempotency_key: crypto.randomUUID() },
     }
     setRetry(action)
-    await paperMutation(action.account, action.path, action.body, (v) =>
-      setAccount(paperSchema.parse(v)),
-    )
+    await paperMutation(action.account, action.path, action.body, (v) => {
+      const next = paperSchema.parse(v)
+      if (next.account_id !== action.account)
+        throw new Error("현재 계좌 응답 식별자가 요청과 다릅니다.")
+      if (selectedAccount.current === action.account) {
+        setAccount(next)
+        setOrderPage((old) =>
+          Math.min(
+            old,
+            Math.max(
+              1,
+              Math.ceil(
+                next.orders.filter((o) =>
+                  JSON.stringify(o).toLocaleLowerCase().includes(orderQuery.toLocaleLowerCase()),
+                ).length / 25,
+              ),
+            ),
+          ),
+        )
+      }
+    })
     setRetry(undefined)
     setReconciliation(undefined)
   }
@@ -98,7 +155,7 @@ export function PaperPanel() {
                     }),
                   )
                   id = created.account_id
-                  setChosen(id)
+                  chooseAccount(id)
                 } finally {
                   if (id) await get(id)
                   await loadList()
@@ -112,7 +169,7 @@ export function PaperPanel() {
         </details>
         <label className="form-field">
           연습 계좌 선택
-          <select value={chosen} onChange={(e) => setChosen(e.target.value)}>
+          <select value={chosen} onChange={(e) => chooseAccount(e.target.value)}>
             <option value="">선택</option>
             {account && !list?.items.some((a) => a["account_id"] === account.account_id) && (
               <option value={account.account_id}>{account.name} · 현재 선택 계좌</option>
@@ -199,39 +256,61 @@ export function PaperPanel() {
               승인 후보 생성
             </ActionButton>
             <p>후보 생성은 현금을 바꾸지 않습니다. 승인 때만 잔액·보유·위험을 재검사합니다.</p>
-            <ul className="library-list">
-              {account.orders
-                .slice(-25)
-                .reverse()
-                .map((o) => (
-                  <li key={String(o["order_id"])}>
-                    <code>{String(o["order_id"])}</code>
-                    <strong>{String(o["state"])}</strong>
-                    <p>
-                      {String(o["side"])} {String(o["symbol"])} × {String(o["quantity"])} · 과거
-                      참조가 {String(o["reference_price"])} · {String(o["quote_at"])} ·{" "}
-                      {String(o["reason"] ?? "")}
-                    </p>
-                    {o["state"] === "pending_approval" && (
-                      <div className="starter-buttons">
-                        {[
-                          ["approve", "승인"],
-                          ["reject", "거절"],
-                          ["cancel", "취소"],
-                        ].map(([path, label]) => (
-                          <ActionButton
-                            key={path}
-                            onClick={() =>
-                              void act(() => mutate(`orders/${String(o["order_id"])}/${path}`, {}))
-                            }
-                          >
-                            {label}
-                          </ActionButton>
-                        ))}
-                      </div>
-                    )}
-                  </li>
-                ))}
+            <Field
+              label="주문 후보 검색 (종목·ID·상태)"
+              value={orderQuery}
+              onChange={(v) => {
+                setOrderQuery(v)
+                setOrderPage(1)
+              }}
+            />
+            <p>
+              후보 작업 목록 {visiblePage} / {orderPages} · 전체 {orders.length}건 (최신 등록 순)
+            </p>
+            <div className="starter-buttons">
+              <ActionButton
+                disabled={visiblePage === 1}
+                onClick={() => setOrderPage(visiblePage - 1)}
+              >
+                후보 이전 25개
+              </ActionButton>
+              <ActionButton
+                disabled={visiblePage === orderPages}
+                onClick={() => setOrderPage(visiblePage + 1)}
+              >
+                후보 다음 25개
+              </ActionButton>
+            </div>
+            <ul className="library-list" aria-label="작업 가능한 주문 후보">
+              {orders.slice((visiblePage - 1) * 25, visiblePage * 25).map((o) => (
+                <li key={String(o["order_id"])} data-order-id={String(o["order_id"])}>
+                  <code>{String(o["order_id"])}</code>
+                  <strong>{String(o["state"])}</strong>
+                  <p>
+                    {String(o["side"])} {String(o["symbol"])} × {String(o["quantity"])} · 과거
+                    참조가 {String(o["reference_price"])} · {String(o["quote_at"])} ·{" "}
+                    {String(o["reason"] ?? "")}
+                  </p>
+                  {o["state"] === "pending_approval" && (
+                    <div className="starter-buttons">
+                      {[
+                        ["approve", "승인"],
+                        ["reject", "거절"],
+                        ["cancel", "취소"],
+                      ].map(([path, label]) => (
+                        <ActionButton
+                          key={path}
+                          onClick={() =>
+                            void act(() => mutate(`orders/${String(o["order_id"])}/${path}`, {}))
+                          }
+                        >
+                          {label}
+                        </ActionButton>
+                      ))}
+                    </div>
+                  )}
+                </li>
+              ))}
             </ul>
             <div className="form-grid">
               <Field label="수동 평가 가격" value={mark} onChange={setMark} />
@@ -253,11 +332,14 @@ export function PaperPanel() {
             </ActionButton>
             <ActionButton
               onClick={() =>
-                void act(async () =>
-                  setReconciliation(
-                    await api(`paper/accounts/${account.account_id}/reconciliation`),
-                  ),
-                )
+                void act(async () => {
+                  const result = await api(`paper/accounts/${account.account_id}/reconciliation`)
+                  if (
+                    selectedAccount.current === account.account_id &&
+                    result["account_id"] === account.account_id
+                  )
+                    setReconciliation(result)
+                })
               }
             >
               내부 원장 대사

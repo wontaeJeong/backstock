@@ -154,3 +154,15 @@ Validation:
   artifacts는 그대로 보존하며 DB migration이나 과거 artifact rewrite는 없다.
 - 비교 선택·최근 실험 ID·선택 paper 계좌만 브라우저에 보존하며 authoritative 결과/계좌는 서버 GET이다.
   원본 전체 JSON·CSV는 서버 기록을 보존한다. 공개 배포용 인증/분산 상태 저장이라고 주장하지 않는다.
+
+## 2026-10-16 워크벤치 scoped review 수정
+
+- 이전 절의 sizing/risk JSON 전용 결정은 비개발자 요구에 미달하여 대체한다. fixed quantity/notional,
+  percent equity, ATR risk와 %/ATR stop-loss/take-profit/trailing 및 기간/배수·요일은 한국어 폼으로 제공한다.
+  가져온 중첩 조건 AST를 유지하면서 해당 설정 분기만 수정한다. 단위 변환은 문자열 자릿수 이동이며
+  수량/손익/위험 계산은 여전히 서버만 수행한다. 불완전 폼 입력을 이전 JSON으로 대신 실행하지 않는다.
+- 비동기 분석은 run/snapshot identity별 소유자로 격리한다. CSV·replay·출처와 다른 실행 통계를 섞지 않는다.
+  QQQ 결과는 기준 run과 benchmark choice, 비교 결과는 선택 집합 소유다. 오류/늦은 응답은 해당 소유권을
+  벗어나 적용하지 않는다. manifest provider의 미확인 출처를 Yahoo로 추정하지 않는다.
+- paper 후보 작업 목록도 모든 원본 후보를 25건 페이지/검색으로 탐색한다. kill 중 안전한 종료 작업을
+  유지하고 모든 POST 이후 current GET 계약을 유지한다. 보관함 검색은 제출 조건과 편집 텍스트를 분리한다.

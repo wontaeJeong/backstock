@@ -14,6 +14,7 @@ import {
   simulationReportSchema,
   starterDraft,
 } from "../../lib/research"
+import { updateDraftSetting } from "../../lib/strategy-form"
 import { ActionButton, FormField, StatusBadge } from "../ui"
 import { AnalysisPanel } from "./analysis-panel"
 import { DataControls } from "./data-controls"
@@ -22,6 +23,7 @@ import { ExperimentPanel } from "./experiment-panel"
 import { LibraryPanel } from "./library-panel"
 import { PaperPanel } from "./paper-panel"
 import { ResultView } from "./result-view"
+import { RiskControls } from "./risk-controls"
 import { RuleBuilder } from "./rule-builder"
 import { StrategyJson } from "./strategy-json"
 
@@ -72,7 +74,7 @@ export function ResearchWorkspace() {
     const next =
       key === "advancedJson" && typeof value === "string"
         ? importDraft(draft, value)
-        : { ...draft, [key]: value }
+        : updateDraftSetting(draft, key, value)
     setDraft(next)
     if (next.symbol !== draft.symbol || next.interval !== draft.interval) setSnapshotId(undefined)
     if (["symbol", "interval", "start", "end"].includes(key)) setSnapshotId(undefined)
@@ -349,47 +351,7 @@ export function ResearchWorkspace() {
                 </details>
               </fieldset>
             </section>
-            <details className="editor-section editor-disclosure">
-              <summary>03 · 손절·익절·보유 기간</summary>
-              <fieldset className="editor-fieldset" disabled={draft.advancedJson !== undefined}>
-                <div className="form-grid">
-                  <FormField
-                    id="stop-loss"
-                    label="손절 (%)"
-                    helper="비우면 사용 안 함"
-                    type="number"
-                    min="0.01"
-                    max="100"
-                    step="0.01"
-                    value={draft.stopLoss}
-                    onChange={(event) => update("stopLoss", event.target.value)}
-                  />
-                  <FormField
-                    id="take-profit"
-                    label="익절 (%)"
-                    type="number"
-                    min="0.01"
-                    max="100"
-                    step="0.01"
-                    value={draft.takeProfit}
-                    onChange={(event) => update("takeProfit", event.target.value)}
-                  />
-                </div>
-                <FormField
-                  id="holding-bars"
-                  label="최대 보유 bar 수"
-                  helper="비우면 기간 제한 없음. 장 마감 자동 청산은 하지 않습니다."
-                  type="number"
-                  min="1"
-                  max="3000"
-                  value={draft.holdingBars}
-                  onChange={(event) => update("holdingBars", event.target.value)}
-                />
-                <p className="helper">
-                  종가로 판단하는 청산 조건입니다. 장중 stop 주문이나 손실 상한 보장이 아닙니다.
-                </p>
-              </fieldset>
-            </details>
+            <RiskControls draft={draft} update={update} />
             <details className="editor-section editor-disclosure" open>
               <summary>04 · 매매 비용과 불리한 체결 가정</summary>
               <div className="form-grid">

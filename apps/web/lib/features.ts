@@ -2,6 +2,7 @@
 import { z } from "zod"
 import { apiErrorMessage } from "./api-error"
 import { type Draft, symbols } from "./research"
+import { readStrategySettings } from "./strategy-form"
 
 export const objectSchema = z.record(z.string(), z.unknown())
 export type JsonObject = z.infer<typeof objectSchema>
@@ -24,8 +25,9 @@ export function importDraft(draft: Draft, text: string): Draft {
   }
   const symbol = next.universe.length === 1 ? next.universe[0]?.replace(/^NASDAQ:/, "") : undefined
   return {
-    ...draft,
+    ...readStrategySettings(draft, next),
     advancedJson: text,
+    formError: undefined,
     interval: next.timeframe,
     ...(symbols.includes(symbol as Draft["symbol"]) ? { symbol: symbol as Draft["symbol"] } : {}),
   }

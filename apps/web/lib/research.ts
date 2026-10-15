@@ -69,6 +69,7 @@ export type Rule = {
   right: Operand
 }
 export type RuleGroup = { match: "all" | "any"; rules: Rule[] }
+export type RiskMode = "off" | "percent" | "atr_multiple"
 export type Draft = {
   name: string
   symbol: (typeof symbols)[number]
@@ -87,6 +88,7 @@ export type Draft = {
   entry: RuleGroup
   exit: RuleGroup
   advancedJson?: string
+  formError?: string | undefined
   spread: string
   latency: string
   participation: string
@@ -97,6 +99,20 @@ export type Draft = {
   entryStart: string
   entryEnd: string
   flattenAt: string
+  sizingMethod: "fixed_quantity" | "fixed_notional" | "percent_equity" | "atr_risk"
+  quantity: string
+  notional: string
+  riskPercent: string
+  sizingAtrPeriod: string
+  sizingAtrMultiple: string
+  stopLossMode: RiskMode
+  stopLossPeriod: string
+  takeProfitMode: RiskMode
+  takeProfitPeriod: string
+  trailingMode: RiskMode
+  trailingStop: string
+  trailingPeriod: string
+  weekdays: number[]
 }
 
 const operand = (kind: OperandKind, period = "5", value = "30"): Operand => ({
@@ -130,6 +146,20 @@ export function defaultDraft(): Draft {
     entryStart: "",
     entryEnd: "",
     flattenAt: "",
+    sizingMethod: "percent_equity",
+    quantity: "2",
+    notional: "500",
+    riskPercent: "1",
+    sizingAtrPeriod: "14",
+    sizingAtrMultiple: "2",
+    stopLossMode: "percent",
+    stopLossPeriod: "14",
+    takeProfitMode: "percent",
+    takeProfitPeriod: "14",
+    trailingMode: "off",
+    trailingStop: "3",
+    trailingPeriod: "14",
+    weekdays: [0, 1, 2, 3, 4],
     entry: {
       match: "all",
       rules: [
@@ -231,13 +261,78 @@ function percentFraction(value: string): string {
     .replace(/\.$/, "")
 }
 
-export function buildStrategy(draft: Draft) {
-  if (draft.advancedJson !== undefined) return JSON.parse(draft.advancedJson) as Strategy
-  const stop = (value: string) => {
-    if (!value) return undefined
-    z.coerce.number().gt(0).max(100).parse(value)
-    return { mode: "percent", value }
+export function positionSizing(draft: Draft): Record<string, unknown> {
+  switch (draft.sizingMethod) {
+    case "fixed_quantity":
+      return {
+        method: draft.sizingMethod,
+        quantity: z.coerce.number().int().gt(0).max(1_000_000_000).parse(draft.quantity),
+      }
+    case "fixed_notional":
+      z.coerce.number().gt(0).max(1_000_000_000_000).parse(draft.notional)
+      return { method: draft.sizingMethod, notional: draft.notional }
+    case "atr_risk":
+      z.coerce.number().gt(0).parse(draft.sizingAtrMultiple)
+      return {
+        method: draft.sizingMethod,
+        risk_percent: percentFraction(draft.riskPercent),
+        atr_period: z.coerce.number().int().min(1).max(5000).parse(draft.sizingAtrPeriod),
+        atr_multiple: draft.sizingAtrMultiple,
+      }
+    default:
+      return { method: "percent_equity", percent: percentFraction(draft.allocation) }
   }
+}
+export function riskRule(
+  mode: RiskMode,
+  value: string,
+  period: string,
+  kind: "stop_loss" | "take_profit" | "trailing_stop",
+) {
+  if (mode === "off" || !value) return null
+  z.coerce
+    .number()
+    .gt(0)
+    .max(mode === "percent" && kind !== "take_profit" ? 100 : 1_000_000)
+    .parse(value)
+  const parsedPeriod = z.coerce.number().int().min(1).max(5000).safeParse(period)
+  if (mode === "atr_multiple" && !parsedPeriod.success) throw parsedPeriod.error
+  return { mode, value, ...(parsedPeriod.success ? { atr_period: parsedPeriod.data } : {}) }
+}
+export function riskSettings(draft: Draft) {
+  return {
+    stop_loss: riskRule(draft.stopLossMode, draft.stopLoss, draft.stopLossPeriod, "stop_loss"),
+    take_profit: riskRule(
+      draft.takeProfitMode,
+      draft.takeProfit,
+      draft.takeProfitPeriod,
+      "take_profit",
+    ),
+    trailing_stop: riskRule(
+      draft.trailingMode,
+      draft.trailingStop,
+      draft.trailingPeriod,
+      "trailing_stop",
+    ),
+    max_holding_bars: draft.holdingBars ? periodSchema.parse(draft.holdingBars) : null,
+  }
+}
+export function sessionSettings(draft: Draft) {
+  return draft.entryStart ||
+    draft.entryEnd ||
+    draft.flattenAt ||
+    draft.weekdays.join(",") !== "0,1,2,3,4"
+    ? {
+        entry_start: draft.entryStart || null,
+        entry_end: draft.entryEnd || null,
+        flatten_at: draft.flattenAt || null,
+        weekdays: draft.weekdays,
+      }
+    : null
+}
+export function buildStrategy(draft: Draft) {
+  if (draft.formError) throw new Error(draft.formError)
+  if (draft.advancedJson !== undefined) return JSON.parse(draft.advancedJson) as Strategy
   return {
     schema_version: "1",
     name: z.string().trim().min(1).max(200).parse(draft.name),
@@ -245,12 +340,8 @@ export function buildStrategy(draft: Draft) {
     timeframe: draft.interval,
     entry: { condition: groupDefinition(draft.entry) },
     exit: { condition: draft.exit.rules.length ? groupDefinition(draft.exit) : null },
-    position_sizing: { method: "percent_equity", percent: percentFraction(draft.allocation) },
-    risk: {
-      stop_loss: stop(draft.stopLoss),
-      take_profit: stop(draft.takeProfit),
-      max_holding_bars: draft.holdingBars ? periodSchema.parse(draft.holdingBars) : undefined,
-    },
+    position_sizing: positionSizing(draft),
+    risk: riskSettings(draft),
     order: {
       order_type: draft.orderType,
       time_in_force: draft.tif,
@@ -259,15 +350,7 @@ export function buildStrategy(draft: Draft) {
         : null,
       stop_offset_bps: ["stop", "stop_limit"].includes(draft.orderType) ? draft.stopOffset : null,
     },
-    session:
-      draft.entryStart || draft.entryEnd || draft.flattenAt
-        ? {
-            entry_start: draft.entryStart || null,
-            entry_end: draft.entryEnd || null,
-            flatten_at: draft.flattenAt || null,
-            weekdays: [0, 1, 2, 3, 4],
-          }
-        : null,
+    session: sessionSettings(draft),
   }
 }
 

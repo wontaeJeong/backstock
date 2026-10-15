@@ -10,6 +10,7 @@ export function useOperation(initialBusy = false) {
   const [busy, setBusy] = useState(initialBusy),
     [error, setError] = useState("")
   const ref = useRef<HTMLDivElement>(null)
+  const sequence = useRef(0)
   useLayoutEffect(() => {
     if (error) {
       ref.current?.focus()
@@ -17,14 +18,15 @@ export function useOperation(initialBusy = false) {
     }
   }, [error])
   const act = useCallback(async (operation: () => Promise<void>) => {
+    const token = ++sequence.current
     setBusy(true)
     setError("")
     try {
       await operation()
     } catch (e) {
-      setError(e instanceof Error ? e.message : "요청 실패")
+      if (token === sequence.current) setError(e instanceof Error ? e.message : "요청 실패")
     } finally {
-      setBusy(false)
+      if (token === sequence.current) setBusy(false)
     }
   }, [])
   return {
