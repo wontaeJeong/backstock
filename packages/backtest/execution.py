@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import timedelta
 from decimal import Decimal
 
 from packages.backtest.models import CostConfig, Fill, Order, OrderType, Side
@@ -13,6 +14,7 @@ class ExecutionRequest:
     bar: Bar
     costs: CostConfig
     fill_id: str
+    bar_duration: timedelta = timedelta(0)
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,7 +35,8 @@ def execute_order(request: ExecutionRequest) -> ExecutionDecision:
     bar = request.bar
     if bar.instrument_id != order.intent.instrument_id:
         return PendingExecution("different_instrument")
-    if bar.timestamp <= order.intent.submitted_at:
+    execution_at = bar.timestamp - request.bar_duration
+    if bar.timestamp <= order.intent.submitted_at or execution_at < order.intent.submitted_at:
         return PendingExecution("not_yet_eligible")
     reference_price = _reference_price(order, bar)
     if reference_price is None:
@@ -48,7 +51,7 @@ def execute_order(request: ExecutionRequest) -> ExecutionDecision:
             fill_id=request.fill_id,
             order_id=order.order_id,
             instrument_id=order.intent.instrument_id,
-            timestamp=bar.timestamp,
+            timestamp=execution_at,
             side=order.intent.side,
             quantity=order.remaining_quantity,
             reference_price=reference_price,

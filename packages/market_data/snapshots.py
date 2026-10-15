@@ -170,6 +170,21 @@ class FileSnapshotStore:
             raise SnapshotIntegrityError(snapshot_id, "normalized checksum differs")
         return manifest
 
+    def read_bars(self, snapshot_id: str) -> tuple[SnapshotManifest, tuple[Bar, ...]] | None:
+        """Decode only bytes bound to a validated immutable manifest."""
+        manifest = self.load(snapshot_id)
+        if manifest is None:
+            return None
+        name = f"{manifest.normalized_checksum.removeprefix('sha256:')}.parquet"
+        payload = (self._normalized_root / name).read_bytes()
+        if _checksum(payload) != manifest.normalized_checksum:
+            raise SnapshotIntegrityError(snapshot_id, "normalized checksum changed")
+        frame = pl.read_parquet(BytesIO(payload))
+        bars = tuple(Bar.model_validate(row) for row in frame.to_dicts())
+        if len(bars) != manifest.row_count:
+            raise SnapshotIntegrityError(snapshot_id, "row count differs")
+        return manifest, bars
+
 
 def _parquet_bytes(bars: tuple[Bar, ...]) -> bytes:
     ordered = sorted(bars, key=lambda bar: (bar.timestamp, bar.instrument_id))

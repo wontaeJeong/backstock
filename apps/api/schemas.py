@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import ClassVar
+from typing import ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
@@ -36,6 +36,7 @@ class DatasetUploadRequest(BaseModel):
     end: datetime
     price_adjustment: AdjustmentMode
     volume_adjustment: AdjustmentMode
+    interval: Literal["1d", "1m", "5m"] = "1d"
 
     @model_validator(mode="after")
     def bounds_are_aware_and_ordered(self) -> "DatasetUploadRequest":
@@ -57,6 +58,7 @@ class DatasetUploadRequest(BaseModel):
             start=self.start,
             end=self.end,
             adjustment=self.price_adjustment,
+            interval=self.interval,
         )
 
 

@@ -111,6 +111,8 @@ class YFinanceProvider:
         )
 
     def get_bars(self, request: BarRequest) -> MarketDataResult[Bar]:
+        if request.interval != "1d":
+            raise not_supported(self.name, "intraday bars; use a close-labelled local file")
         artifact = self._artifact(request)
         bars = bars_from_csv(
             artifact.payload_path.read_bytes(),
