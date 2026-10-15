@@ -68,3 +68,26 @@ Validation:
   반영해 포지션을 청산한다.
 - engine은 DB/API/job queue를 호출하지 않는 순수 library다. run persistence, worker lifecycle,
   snapshot FK transaction은 Prompt 08에서 연결한다.
+
+## 2026-08-01 전략 DSL과 지표
+
+- `entry`/`exit`/`risk`/`position_sizing`/`order`를 분리한다. stop-loss/take-profit/trailing-stop/
+  최대 보유 기간은 `risk`에 두고, 조건식 기반 청산만 `exit.condition`에 둔다.
+- `percent` 모드 stop-loss/trailing-stop의 `value`(퍼센트, 0-100)와 `atr_multiple` 모드의 `value`(ATR
+  배수)는 같은 필드를 공유하되 의미가 다르다. `percent` 값이 100을 넘으면 거절한다.
+- `percent_equity.percent`와 `atr_risk.risk_percent`는 1(계좌 전체) 이하만 허용한다. 이를 초과하는
+  sizing은 "위험한 sizing"으로 거절한다.
+- 조건 트리의 최대 깊이는 8이다. 초과 시 거절한다.
+- 지표 lookback이 부족하면 해당 지표 값은 `null`이며, 이를 사용하는 비교/교차 조건은 명시적으로
+  false로 평가된다. 이 방식으로 warm-up 기간을 처리하며 별도 사전 lookback 계산 게이트를 두지
+  않는다.
+- `DslStrategyEvaluator`는 `EvaluationContext`에 없는 정보(진입가, 진입 시점, 고점)를 종목별 직전
+  포트폴리오 수량과 비교해 자체적으로 추론한다. 평지 상태에서만 신규 진입하며 부분 체결/피라미딩은
+  가정하지 않는다. 이는 현재 backtest 실행 모델(전량 체결, 롱 온리)과 일치한다.
+- `crosses_above`/`crosses_below`가 `portfolio` 값(cash/equity)을 피연산자로 사용하면 evaluator가
+  이전 bar의 포트폴리오 상태를 별도로 보관하지 않으므로 사실상 일반 비교와 동일하게 동작한다. 이
+  한계는 문서화하고 지표/봉/캘린더 값 기반 교차만 정확한 이전-bar 비교를 제공한다.
+- `StrategyVersion`은 현재 API 응답으로만 존재하는 순수 계산 결과다(canonical JSON + sha256 hash).
+  DB 영속화, update 금지 제약, `/strategies`·`/strategy-versions` CRUD는 Prompt 08에서 추가한다.
+- `POST /strategies/validate`, `GET /strategies/metadata`는 인증/저장 없이 순수 검증·조회만
+  수행한다. 사용자 identity 기반 authz는 Prompt 08 보안 slice 범위다.

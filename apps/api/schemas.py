@@ -58,3 +58,32 @@ class DatasetUploadRequest(BaseModel):
             end=self.end,
             adjustment=self.price_adjustment,
         )
+
+
+class OperatorMetadataResponse(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    name: str
+    category: str
+    arity: str
+    description: str
+
+
+class IndicatorMetadataResponse(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    name: str
+    parameters: tuple[str, ...]
+    minimum_lookback: str
+    output_type: str
+    availability: str
+    description: str
+
+
+class StrategyMetadataResponse(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
+
+    json_schema: dict[str, JsonValue]
+    operators: tuple[OperatorMetadataResponse, ...]
+    indicators: tuple[IndicatorMetadataResponse, ...]
+    templates: dict[str, JsonValue]

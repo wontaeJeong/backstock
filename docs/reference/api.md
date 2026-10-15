@@ -39,3 +39,15 @@ Parquet는 signature, column 수와 row 수를 decode 전에 제한하고 필요
 manifest를 반환하고 normalized checksum을 재검증한다. manifest에는 provider 취득 시점과 query,
 canonical/provider symbol, timezone, 가격·volume adjustment, row count, raw/normalized checksum,
 validation status/warnings와 storage root를 노출하지 않는 `snapshot://` logical URI가 포함된다.
+
+## 구현된 strategy endpoint
+
+`POST /strategies/validate`는 임의 JSON body를 `StrategyDefinition`으로 검증하고 성공하면 canonical
+JSON과 `sha256:<hex>` `version_id`를 가진 `StrategyVersion`을 200으로 반환한다. 실패하면 422
+`STRATEGY_INVALID`와 `details.issues`(필드 경로 + 메시지 목록)를 반환한다. 저장은 하지 않으며 같은
+정의는 항상 같은 `version_id`를 만든다.
+
+`GET /strategies/metadata`는 `StrategyDefinition`의 JSON Schema(`json_schema`), operator/indicator
+metadata(`operators`, `indicators`), 4개 템플릿의 canonical JSON(`templates`)을 반환한다.
+
+`/strategies`, `/strategy-versions`의 영속화 CRUD, `/backtest-runs` 이하는 Prompt 08에서 구현한다.

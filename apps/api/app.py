@@ -6,6 +6,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from apps.api.datasets import build_dataset_router
 from apps.api.middleware import RequestContextMiddleware, request_id_context
 from apps.api.schemas import ErrorResponse, HealthResponse
+from apps.api.strategies import build_strategy_router
 from packages.application.datasets import (
     DatasetInvalidError,
     DatasetSnapshotService,
@@ -14,6 +15,7 @@ from packages.application.datasets import (
 from packages.market_data.snapshots import FileSnapshotStore
 from packages.shared.logging import configure_logging
 from packages.shared.settings import Settings, get_settings
+from packages.strategy.validation import StrategyValidationError
 
 
 async def live() -> HealthResponse:
@@ -69,6 +71,16 @@ async def api_exception_handler(_: Request, exc: Exception) -> JSONResponse:
                 request_id=request_id_context.get(),
             )
             return JSONResponse(status_code=404, content=error.model_dump(mode="json"))
+        case StrategyValidationError(issues=issues):
+            error = ErrorResponse(
+                code="STRATEGY_INVALID",
+                message="Strategy definition failed validation",
+                details={
+                    "issues": [{"path": issue.path, "message": issue.message} for issue in issues]
+                },
+                request_id=request_id_context.get(),
+            )
+            return JSONResponse(status_code=422, content=error.model_dump(mode="json"))
         case unknown:
             raise unknown
 
@@ -91,10 +103,12 @@ def create_app(
         FileSnapshotStore(resolved_settings.data_storage_path / "published")
     )
     app.include_router(build_dataset_router(resolved_dataset_service, resolved_settings))
+    app.include_router(build_strategy_router())
     app.add_exception_handler(StarletteHTTPException, api_exception_handler)
     app.add_exception_handler(RequestValidationError, api_exception_handler)
     app.add_exception_handler(DatasetInvalidError, api_exception_handler)
     app.add_exception_handler(SnapshotNotFoundError, api_exception_handler)
+    app.add_exception_handler(StrategyValidationError, api_exception_handler)
     return app
 
 
