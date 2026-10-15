@@ -126,3 +126,84 @@ pnpm/Playwright 검증은 controller의 통합/UI 단계 소관으로 **본 작�
   review에서 처리한다. 다른 작업의 plan 변경도 그대로 남겼다.
 - 구현 blocker나 누락된 요청 기능은 없다. 새 worktree/branch 생성·push·merge는 명시적 작업 금지에 따라
   controller가 수행한다.
+
+## Review fix round 1/5 — BASE `427b8ed`
+
+**DONE** — `.superpowers/sdd/2026-10-16-functional-research/task-2-review.md`의 I1/I2/M1을
+모두 수정했다. M1은 controller의 재분류대로 Important로 처리했다. 앞선 완료 판정은 이 리뷰에서
+확인된 세 결함에 대해 불충분했으며, 아래 수정/재검증 증거가 해당 부분을 대체한다.
+
+수정 커밋: **`0b83cde`** — `fix(research): correct spread limits flatten priority and trigger timing`.
+이 보고서 추가는 별도 문서 커밋으로 남긴다. frontend/paper 및 deferred Task1 fold.error는 변경하지 않았다.
+controller의 plan/design/verification 문서 미커밋 변경도 stage/commit하지 않았다.
+
+### I1 — spread-adjusted OHLC limit 관통
+
+- 실제 quote가 없는 limit/활성화 stop-limit은 선언된 spread의 **실행-side range**로 판정한다.
+  buy는 low×(1+half-spread)≤limit, sell은 high×(1−half-spread)≥limit이어야 한다.
+  open의 실행-side 가격이 유리하면 기존 open improvement를 유지한다. 그 외 충분한 intrabar
+  관통은 reference=limit/factor, base=정확한 limit이며 이후 slippage만 limit으로 제한한다.
+  Decimal 경계 나눗셈/곱셈 roundoff를 보정할 뿐 실제 quote를 잘라 가짜 체결하지 않는다.
+- quote side-price bound는 별도 검사다. 제공 ask/bid가 limit 밖이면 깊은 print 또는 declared
+  scenario와 무관하게 미체결이다. midpoint→side quote→별도 slippage 정책은 유지한다.
+- spread/slippage는 여전히 서로 겹치지 않으며 합계가 실제 reference→execution 가격 차이×수량과
+  일치한다. 수수료·원장·부분 체결 의미는 변경하지 않았다.
+- RED: 새 집중 파일 최초 **4 failed / 8 passed**. buy/sell deep cross 및 activated stop-limit의
+  실제 FilledExecution 기대가 기존 PendingExecution 때문에 실패했다.
+  GREEN: 같은 파일 **12 passed**, 기존 execution 두 파일까지 함께 **32 passed**.
+  이후 insufficient penetration의 activated 조합과 open improvement/limit-clamped slippage
+  reconciliation을 추가 검증했다. 기존 spread=0 golden/parity도 전체 회귀에서 유지된다.
+
+### I2 — flatten cancel/replace 우선순위
+
+- 내부 immutable context에 `EvaluationContext.pending_orders: tuple[Order, ...] = ()`를 추가했다.
+  엔진은 해당 이벤트의 기존 주문 실행 후 아직 accepted인 주문들의 immutable tuple을 제공한다.
+  default 빈 tuple로 기존 context fixture와 사용자 evaluator 호출을 유지하며 HistoryEvaluator도
+  pending context를 손실 없이 전달한다. session 회귀의 지연/cap 12조합은 실제 이 wrapper를 거친다.
+- DslStrategyEvaluator 반환은 protocol의 `tuple[StrategyDecision, ...]`와 일치하도록 확장했다.
+  flatten 경계에서는 같은 종목의 pending entry/exit에 CancelIntent를 먼저 발행하고 실제 보유
+  전체 수량의 market exit 하나를 뒤에 둔다. 일반 pending dedupe와 long-only 검사에는 손대지 않았다.
+- 이미 같은 수량의 `session/flatten` market sell이 accepted면 취소/재제출하지 않는다. 따라서
+  cap/latency 대기 중 주문 id와 submitted_at이 유지되고 latency가 끝없이 재시작되지 않는다.
+  미보유이면 pending entry만 취소하며 매도하지 않는다. 그 이벤트에서 기존 주문이 먼저 이미
+  체결됐다면 소급 취소하지 않고 실제 보유를 다음 eligible 이벤트로 청산한다.
+- RED: session 집중 **16 failed** — 후속 이벤트가 충분해도 매도 fill 부재, flatten rejected,
+  pending entry의 경계 이후 체결을 실제 엔진으로 재현했다.
+  GREEN: **16 passed** — limit/stop/stop-limit exits × delay/cap, cancel trace 선후관계,
+  단일 실제 market exit·중복 매도 없음·보유 수량 불변식, no-next-event expired/잔여 포지션,
+  경계 pending entry 취소를 확인했다. same-close 강제 청산은 추가하지 않았다.
+- 반환 union 확장에 따라 기존 `tests/strategy/test_evaluator.py`의 알려진 OrderIntent 결과에
+  실제 `isinstance(..., OrderIntent)` assertion을 추가했다. type ignore/가짜 cast로 숨기지 않았다.
+
+### M1 (Important) — cap/limit 대기의 trigger 시각
+
+- internal FilledExecution/PendingExecution에 optional `triggered_at: datetime | None = None`을
+  추가했다. 최초 gap trigger는 bar open, 순서를 알 수 없는 intrabar trigger는 close를 전달한다.
+  processing은 이 시각을 Order.triggered_at과 order_triggered event에 그대로 기록한다.
+  이미 발동한 주문은 최초 시각을 유지한다. report의 기존 필드 이름/타입은 바꾸지 않았다.
+- RED: timestamp 테스트 추가 후 execution 집중 **21 failed / 12 passed**. 새 decision 필드 부재와
+  엔진이 known open보다 1분 늦은 close를 기록하는 실패를 모두 관측했다.
+  GREEN: execution 집중 33개 및 기존 execution 두 파일, 합계 **53 passed**.
+  buy/sell × stop/stop-limit × 1m/5m × gap/intrabar cap 대기, 양방향 limit-bound 대기와
+  실제 엔진 trigger→나중 fill trace를 포함한다.
+
+### 최종 실제 검증
+
+새 정확성 회귀는 2개 파일 **53개**이며 기존 258개와 함께 전부 통과했다.
+
+| 명령 | 실제 결과 |
+| --- | --- |
+| `uv run pytest tests/research/test_execution_review_fixes.py tests/research/test_session_review_fixes.py -q` | **53 passed in 0.34s** |
+| `uv run pytest` | **311 passed in 3.41s**, 수집 311, skip/xfail 없음 |
+| `uv run ruff check .` | **All checks passed!** |
+| `uv run ruff format --check .` | **125 files already formatted** |
+| `uv run mypy .` | **Success: no issues found in 125 source files** |
+| `git diff --check` / `git diff --cached --check` | exit 0, whitespace 오류 없음 |
+
+중간 전체 실행은 307 passed였지만 mypy가 기존 테스트의 union narrowing 8건을 발견해 위 assertion으로
+수정했다. 최종 311 suite는 추가 4개 spread 경계 회귀까지 포함한다. lint/format도 모두 수정 후
+전체 명령으로 재검증했다. runtime 테스트를 skip하거나 기대치를 결함 동작에 맞추지 않았다.
+
+제한은 기존과 같다. OHLC 내부 경로/정확한 limit touch 시각·queue·부분 체결을 재현하지 않는다.
+flatten은 관측 경계의 명시적 취소/교체 정책이며 같은 close 또는 미래 데이터 없는 청산 보장이 아니다.
+실제 provider/credential 호출, frontend/paper 변경·검증, push/merge/새 worktree/agent 실행은 하지 않았다.
