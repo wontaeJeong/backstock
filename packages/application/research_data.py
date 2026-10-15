@@ -43,6 +43,12 @@ def acquire_research_data(root: Path, request: SimulationRequest) -> SnapshotMan
     if request.start is None or request.end is None:
         msg = "기간을 선택하세요."
         raise ValueError(msg)
+    if request.strategy.timeframe in {"1m", "5m"}:
+        days = 7 if request.strategy.timeframe == "1m" else 60
+        now = datetime.now(UTC)
+        if request.start < now - timedelta(days=days) or request.end > now:
+            msg = f"Yahoo 분봉 {request.strategy.timeframe}은 최근 {days}일만 요청할 수 있습니다."
+            raise ValueError(msg)
     raw = FileRawStore(root / "raw")
     provider = YFinanceProvider(
         raw_store=raw,
@@ -65,6 +71,7 @@ def acquire_research_data(root: Path, request: SimulationRequest) -> SnapshotMan
             start=request.start,
             end=request.end,
             adjustment=AdjustmentMode.TOTAL_RETURN_ADJUSTED,
+            interval=request.strategy.timeframe,
         ),
     )
 
@@ -86,14 +93,14 @@ def _demo(
             + Decimal(index) / 10
             + Decimal((index % 30) if index % 60 < DEMO_HALF_CYCLE else 30 - index % 30) / 2
         )
-        close = price + Decimal("0.2")
+        close = price if interval == "tick" else price + Decimal("0.2")
         bars.append(
             Bar(
                 instrument_id=f"NASDAQ:{request.symbol}",
                 timestamp=timestamp,
                 open=price,
-                high=close + 1,
-                low=price - 1,
+                high=close if interval == "tick" else close + 1,
+                low=price if interval == "tick" else price - 1,
                 close=close,
                 volume=10000 + index * 10,
                 price_adjustment=AdjustmentMode.RAW,
@@ -103,6 +110,8 @@ def _demo(
         timestamp += (
             timedelta(days=1)
             if interval == "1d"
+            else timedelta(seconds=1)
+            if interval == "tick"
             else timedelta(minutes=1 if interval == "1m" else 5)
         )
         if interval == "1d":
@@ -121,7 +130,9 @@ def _demo(
             "interval": interval,
             "provider_symbol": request.symbol,
             "synthetic": True,
-            "timestamp_label": "close" if interval != "1d" else "session_date",
+            "timestamp_label": (
+                "event" if interval == "tick" else "close" if interval != "1d" else "session_date"
+            ),
         },
         payload=payload,
         media_type="application/json",

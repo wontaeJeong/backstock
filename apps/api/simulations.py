@@ -6,7 +6,8 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-from packages.application.simulation_models import SYMBOLS, SimulationReport, SimulationRequest
+from packages.application.research_catalog import search_catalog
+from packages.application.simulation_models import SimulationReport, SimulationRequest
 from packages.application.simulations import SimulationService
 from packages.market_data.errors import MarketDataError
 from packages.market_data.snapshots import SnapshotIntegrityError
@@ -57,13 +58,21 @@ def build_simulation_router(service: SimulationService) -> APIRouter:
     router = APIRouter()
 
     @router.get("/research/catalog", tags=["research"])
-    def catalog() -> dict[str, object]:
+    def catalog(q: str = "") -> dict[str, object]:
+        matches = search_catalog(q)
         return {
-            "symbols": list(SYMBOLS),
-            "intervals": ["1d", "1m", "5m"],
+            "symbols": [item["symbol"] for item in matches],
+            "instruments": matches,
+            "listing_scope": "curated_current_not_point_in_time",
+            "warnings": [
+                "제한된 현재 종목 목록입니다. 전체 Nasdaq 또는 과거/PIT universe가 아닙니다."
+            ],
+            "intervals": ["1d", "1m", "5m", "tick"],
             "max_bars": 3000,
             "currency": "USD",
-            "remote_intervals": ["1d"],
+            "remote_intervals": ["1d", "1m", "5m"],
+            "remote_range_days": {"1m": 7, "5m": 60},
+            "tick_timestamp_label": "event",
             "intraday_timestamp_label": "close",
             "exchange_timezone": "America/New_York",
         }

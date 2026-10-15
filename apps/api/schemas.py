@@ -36,7 +36,7 @@ class DatasetUploadRequest(BaseModel):
     end: datetime
     price_adjustment: AdjustmentMode
     volume_adjustment: AdjustmentMode
-    interval: Literal["1d", "1m", "5m"] = "1d"
+    interval: Literal["1d", "1m", "5m", "tick"] = "1d"
 
     @model_validator(mode="after")
     def bounds_are_aware_and_ordered(self) -> "DatasetUploadRequest":

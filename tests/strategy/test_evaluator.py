@@ -6,6 +6,7 @@ from packages.backtest.models import (
     BacktestConfig,
     BacktestInput,
     CostConfig,
+    OrderIntent,
     PortfolioSnapshot,
     Position,
     Side,
@@ -174,6 +175,7 @@ def test_fixed_notional_sizing_rounds_down_to_whole_shares() -> None:
     )
 
     assert len(decisions) == 1
+    assert isinstance(decisions[0], OrderIntent)
     assert decisions[0].quantity == 10
 
 
@@ -219,6 +221,7 @@ def test_percent_equity_sizing_uses_current_equity() -> None:
     )
 
     assert len(decisions) == 1
+    assert isinstance(decisions[0], OrderIntent)
     assert decisions[0].quantity == 50
 
 
@@ -251,6 +254,7 @@ def test_atr_risk_sizing_divides_risk_budget_by_per_share_risk() -> None:
     # ATR(2) at 3 bars = 3.5; per-share risk = 3.5 * 2 = 7; risk budget = 100000 * 0.02 = 2000
     # quantity = floor(2000 / 7) = 285
     assert len(decisions) == 1
+    assert isinstance(decisions[0], OrderIntent)
     assert decisions[0].quantity == 285
 
 
@@ -292,6 +296,7 @@ def test_percent_stop_loss_triggers_an_exit() -> None:
     )
 
     assert len(second) == 1
+    assert isinstance(second[0], OrderIntent)
     assert second[0].side is Side.SELL
     assert second[0].rule_path == "risk/stop_loss"
 
@@ -332,6 +337,7 @@ def test_take_profit_triggers_an_exit() -> None:
     )
 
     assert len(decisions) == 1
+    assert isinstance(decisions[0], OrderIntent)
     assert decisions[0].rule_path == "risk/take_profit"
 
 
@@ -386,6 +392,7 @@ def test_trailing_stop_tracks_the_peak_since_entry() -> None:
 
     # peak=120, trailing threshold = 120 * 0.9 = 108; price 105 <= 108 triggers the exit
     assert len(triggered) == 1
+    assert isinstance(triggered[0], OrderIntent)
     assert triggered[0].rule_path == "risk/trailing_stop"
 
 
@@ -427,6 +434,7 @@ def test_max_holding_bars_forces_an_exit() -> None:
     )
 
     assert len(triggered) == 1
+    assert isinstance(triggered[0], OrderIntent)
     assert triggered[0].rule_path == "risk/max_holding_bars"
 
 

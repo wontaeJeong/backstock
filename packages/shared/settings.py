@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     market_data_default_provider: str = "yfinance"
     yfinance_cache_path: Path = Path("var/cache/yfinance")
     broker_mode: str = "paper"
+    paper_trading_enabled: bool = True
     broker_production_enabled: bool = False
     mcp_enabled: bool = False
     mcp_production_order_tools_enabled: bool = False

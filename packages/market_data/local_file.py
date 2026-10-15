@@ -84,7 +84,7 @@ class LocalFileProvider:
                 message="local market data file could not be read",
                 retryable=False,
             ) from error
-        bars, media_type = self._normalize(payload)
+        bars, media_type = self._normalize(payload, request.interval)
         if request.interval != "1d" and any(
             bar.timestamp_provenance is not TimestampProvenance.EXPLICIT_OFFSET for bar in bars
         ):
@@ -101,7 +101,13 @@ class LocalFileProvider:
                 "start": request.start.isoformat(),
                 "end": request.end.isoformat(),
                 "interval": request.interval,
-                "timestamp_label": "close" if request.interval != "1d" else "session_date",
+                "timestamp_label": (
+                    "event"
+                    if request.interval == "tick"
+                    else "close"
+                    if request.interval != "1d"
+                    else "session_date"
+                ),
                 "price_adjustment": self._source.price_adjustment.value,
                 "volume_adjustment": self._source.volume_adjustment.value,
                 "adjustment_vintage": "static_file",
@@ -134,13 +140,14 @@ class LocalFileProvider:
         del request
         raise not_supported(self.name, "exchange calendars")
 
-    def _normalize(self, payload: bytes) -> tuple[tuple[Bar, ...], str]:
+    def _normalize(self, payload: bytes, interval: str = "1d") -> tuple[tuple[Bar, ...], str]:
         normalization = BarNormalization(
             instrument=self._source.instrument,
             price_adjustment=self._source.price_adjustment,
             volume_adjustment=self._source.volume_adjustment,
             provider=self.name,
             max_rows=self._source.max_rows,
+            interval=interval,
         )
         if self._source.path.suffix.casefold() == ".csv":
             bars = bars_from_csv(payload, normalization=normalization)
@@ -161,12 +168,15 @@ class LocalFileProvider:
         if len(schema) > self._source.max_columns:
             raise self._invalid(PARQUET_COLUMN_LIMIT)
         columns = ["timestamp", "open", "high", "low", "close", "volume"]
-        if "open" not in schema:
+        if "price" in schema:
+            columns = ["timestamp", "price", "size"]
+        elif "open" not in schema:
             try:
                 timestamp = next(name for name in ("Date", "Datetime") if name in schema)
             except StopIteration as error:
                 raise self._invalid(INVALID_PARQUET) from error
             columns = [timestamp, "Open", "High", "Low", "Close", "Volume"]
+        columns.extend(name for name in ("bid", "ask") if name in schema)
         try:
             return pl.read_parquet(
                 BytesIO(payload),

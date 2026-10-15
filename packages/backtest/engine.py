@@ -1,5 +1,5 @@
 from packages.backtest.events import EventKind
-from packages.backtest.models import BacktestInput, PortfolioState, RunStatus
+from packages.backtest.models import BacktestInput, OrderState, PortfolioState, RunStatus
 from packages.backtest.ports import (
     CancellationProbe,
     EvaluationContext,
@@ -57,6 +57,9 @@ class BacktestEngine:
                         current_bar=bar,
                         history=tuple(state.history),
                         portfolio=snapshot,
+                        pending_orders=tuple(
+                            order for order in state.orders if order.state is OrderState.ACCEPTED
+                        ),
                     )
                 )
             except StrategyEvaluationError as error:

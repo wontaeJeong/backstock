@@ -10,12 +10,31 @@ from packages.domain.market_data import Bar
 UNKNOWN_INDICATOR: Final = "unknown indicator"
 
 _SIMPLE_WINDOW_INDICATORS: Final = frozenset(
-    {"sma", "rolling_high", "rolling_low", "volume_average"}
+    {
+        "sma",
+        "rolling_high",
+        "rolling_low",
+        "volume_average",
+        "vwap",
+        "bollinger_middle",
+        "bollinger_upper",
+        "bollinger_lower",
+    }
 )
 _SMOOTHED_INDICATORS: Final = frozenset({"ema", "rsi", "atr"})
 
 
-def minimum_lookback(indicator: str, period: int) -> int:
+def minimum_lookback(
+    indicator: str,
+    period: int,
+    *,
+    fast_period: int = 12,
+    slow_period: int = 26,
+    signal_period: int = 9,
+) -> int:
+    del fast_period
+    if indicator.startswith("macd"):
+        return slow_period + (0 if indicator == "macd" else signal_period - 1)
     if indicator in _SIMPLE_WINDOW_INDICATORS:
         return period
     if indicator in _SMOOTHED_INDICATORS:
@@ -25,13 +44,64 @@ def minimum_lookback(indicator: str, period: int) -> int:
     raise ValueError(UNKNOWN_INDICATOR)
 
 
-def compute_indicator(indicator: str, period: int, window: Sequence[Bar]) -> Decimal | None:
-    if len(window) < minimum_lookback(indicator, period):
+def compute_indicator(  # noqa: PLR0913 -- explicit bounded DSL indicator parameters
+    indicator: str,
+    period: int,
+    window: Sequence[Bar],
+    *,
+    stddev_multiplier: Decimal = Decimal(2),
+    fast_period: int = 12,
+    slow_period: int = 26,
+    signal_period: int = 9,
+) -> Decimal | None:
+    if len(window) < minimum_lookback(
+        indicator,
+        period,
+        fast_period=fast_period,
+        slow_period=slow_period,
+        signal_period=signal_period,
+    ):
         return None
+    if indicator.startswith("macd"):
+        return _macd(indicator, window, fast_period, slow_period, signal_period)
+    if indicator.startswith("bollinger"):
+        mean = sum((b.close for b in window[-period:]), Decimal(0)) / period
+        variance = sum(((b.close - mean) ** 2 for b in window[-period:]), Decimal(0)) / period
+        sign = 1 if indicator == "bollinger_upper" else -1 if indicator == "bollinger_lower" else 0
+        return mean + sign * stddev_multiplier * variance.sqrt()
+    if indicator == "vwap":
+        volume = sum(b.volume for b in window[-period:])
+        return (
+            sum(((b.high + b.low + b.close) / 3 * b.volume for b in window[-period:]), Decimal(0))
+            / volume
+            if volume
+            else None
+        )
     handler = _HANDLERS.get(indicator)
     if handler is None:
         raise ValueError(UNKNOWN_INDICATOR)
     return handler(window, period)
+
+
+def _ema_values(values: Sequence[Decimal], period: int) -> list[Decimal]:
+    value = sum(values[:period], Decimal(0)) / period
+    result = [value]
+    weight = Decimal(2) / (period + 1)
+    for current in values[period:]:
+        value += (current - value) * weight
+        result.append(value)
+    return result
+
+
+def _macd(indicator: str, window: Sequence[Bar], fast: int, slow: int, signal: int) -> Decimal:
+    closes = [bar.close for bar in window]
+    fast_values = _ema_values(closes, fast)[slow - fast :]
+    slow_values = _ema_values(closes, slow)
+    values = [a - b for a, b in zip(fast_values, slow_values, strict=True)]
+    if indicator == "macd":
+        return values[-1]
+    signal_value = _ema_values(values, signal)[-1]
+    return signal_value if indicator == "macd_signal" else values[-1] - signal_value
 
 
 def _sma(window: Sequence[Bar], period: int) -> Decimal | None:

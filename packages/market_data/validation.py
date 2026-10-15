@@ -228,13 +228,18 @@ def parquet_decimal_scale(bars: tuple[Bar, ...]) -> int | None:
     scale = 0
     integer_digits = 0
     for bar in bars:
-        for value in (bar.open, bar.high, bar.low, bar.close):
-            normalized = value.normalize()
-            exponent = _decimal_exponent(normalized)
+        for value in (bar.open, bar.high, bar.low, bar.close, bar.bid, bar.ask):
+            if value is None:
+                continue
+            exponent = _decimal_exponent(value)
             if exponent is None:
                 return None
+            digits = value.as_tuple().digits
+            while digits and digits[-1] == 0:
+                digits = digits[:-1]
+                exponent += 1
             value_scale = max(0, -exponent)
-            value_integer_digits = max(0, len(normalized.as_tuple().digits) + exponent)
+            value_integer_digits = max(0, len(digits) + exponent)
             scale = max(scale, value_scale)
             integer_digits = max(integer_digits, value_integer_digits)
     return scale if scale + integer_digits <= PARQUET_DECIMAL_PRECISION else None

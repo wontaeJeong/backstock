@@ -58,18 +58,35 @@ Yahoo 원본 HTTP bytes라고 주장하지 않는다.
 Yahoo 요청은 canonical symbol을 직접 보내지 않는다. effective-dated provider mapping resolver가 요청
 전체 `[start, end)`를 덮는 symbol 하나를 찾아야 하며 mapping 전환 시점을 가로지르는 요청은 거부한다.
 
+### Yahoo 분봉 범위·확정 정책
+
+yfinance 1.5.1 SDK의 explicit interval=1m/5m, prepost=False를 사용한다. 애플리케이션의 보수적
+정책은 1m 최근 7일, 5m 최근 60일이며 end는 현재 취득 시각 이후가 될 수 없다. 이 조건은 Yahoo
+서비스 가용성 보장이 아니다. 실패 시 fallback하지 않는다. SDK DataFrame의 open label에 interval을
+더해 close label로 바꾸고 close≤acquired_at인 finalized bar만 게시한다. canonical 요청은 close
+기준 [start,end), SDK 요청 start/end는 duration을 뺀 값이며 양쪽 범위를 provenance에 보존한다.
+raw bytes는 원래 open label의 SDK CSV이고 normalized Parquet는 close label이다. 소급 가격 보정과
+raw volume 의미는 일봉과 같다. 과거 immutable snapshot/run 조회에 현재 수집 범위를 재적용하지 않는다.
+`/research/catalog?q=`는 별도의 제한된 curated current Nasdaq/QQQ 검색이며 전체/PIT universe가 아니다.
+
 ## LocalFileProvider
 
-로컬 `BarRequest.interval`은 `1d`/`1m`/`5m`를 명시한다. 분봉은 **종료 시각** timestamp와
+로컬 `BarRequest.interval`은 `1d`/`1m`/`5m`/`tick`를 명시한다. 분봉은 **종료 시각** timestamp와
 명시적 UTC offset이 필수이며 naive timestamp의 자동 시간대 추론을 거부한다. simulation은 뉴욕
 정규장·동일 날짜의 1분/5분 연속 간격을 검사하고 일봉에 하루 여러 bar가 있으면 거부한다.
-Yahoo 원격 경로는 일봉만 제공하며 분봉 요청을 자동 일봉으로 바꾸지 않는다.
+Yahoo 원격 경로는 일봉과 최근 1분/5분을 제공하며 주기를 자동 변경하지 않는다.
 업로드 파일의 실제 시세 출처·기업 이벤트 의미는 사용자가 확인해야 한다. 25 MiB 업로드 제한과
 3,000 bar 실행 제한은 서로 별개다. 파일 전체가 요청 범위 안에 있어야 하며 범위 밖 행은 거부한다.
 
 CSV/Parquet를 읽으며 fixture와 재현성의 기준이다.
 
 필수 컬럼: `timestamp, open, high, low, close, volume`
+
+tick 필수 컬럼은 `timestamp,price,size`이고 선택적 `bid,ask`는 paired positive bid≤ask다.
+tick은 raw만 허용하며 명시적 offset·unique ascending timestamps·positive price·integer size≥0을
+정규화 전에 검사한다. OHLC=price, volume=size, quote는 별도 Decimal Parquet 컬럼으로 보존한다.
+파일 timestamp는 microsecond 해상도의 event 시각이며 quote-only size=0도 허용한다. simulation은
+미국 정규장만 지원한다. remote tick은 지원하지 않는다. 합성 tick demo는 synthetic_demo로 구분한다.
 
 권장 컬럼: `instrument, exchange, currency, adjusted_close, source, timezone`
 

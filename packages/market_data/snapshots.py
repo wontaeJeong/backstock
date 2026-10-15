@@ -214,6 +214,11 @@ def _parquet_bytes(bars: tuple[Bar, ...]) -> bytes:
             "close": pl.Decimal(precision=38, scale=decimal_scale),
         },
     )
+    if any(bar.bid is not None for bar in ordered):
+        frame = frame.with_columns(
+            pl.Series("bid", [bar.bid for bar in ordered], dtype=pl.Decimal(38, decimal_scale)),
+            pl.Series("ask", [bar.ask for bar in ordered], dtype=pl.Decimal(38, decimal_scale)),
+        )
     stream = BytesIO()
     frame.write_parquet(
         stream,

@@ -64,6 +64,22 @@ class Bar(_FrozenModel):
     price_adjustment: AdjustmentMode
     volume_adjustment: AdjustmentMode
     timestamp_provenance: TimestampProvenance = TimestampProvenance.EXPLICIT_OFFSET
+    bid: Decimal | None = Field(default=None, gt=0, allow_inf_nan=False)
+    ask: Decimal | None = Field(default=None, gt=0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def quotes_are_paired_raw(self) -> "Bar":
+        if (self.bid is None) != (self.ask is None):
+            message = "bid and ask must be paired"
+            raise ValueError(message)
+        if self.bid is not None and self.ask is not None:
+            if self.bid > self.ask:
+                message = "bid must not exceed ask"
+                raise ValueError(message)
+            if self.price_adjustment is not AdjustmentMode.RAW:
+                message = "quotes require raw prices"
+                raise ValueError(message)
+        return self
 
     @field_validator("timestamp")
     @classmethod
@@ -93,7 +109,7 @@ class BarRequest(_FrozenModel):
     start: datetime
     end: datetime
     adjustment: AdjustmentMode
-    interval: Literal["1d", "1m", "5m"] = "1d"
+    interval: Literal["1d", "1m", "5m", "tick"] = "1d"
 
     @field_validator("start", "end")
     @classmethod
@@ -106,6 +122,9 @@ class BarRequest(_FrozenModel):
     def interval_must_be_nonempty(self) -> "BarRequest":
         if self.end <= self.start:
             raise ValueError(EMPTY_INTERVAL)
+        if self.interval == "tick" and self.adjustment is not AdjustmentMode.RAW:
+            message = "tick data must use raw adjustment"
+            raise ValueError(message)
         return self
 
 

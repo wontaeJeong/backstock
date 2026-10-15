@@ -25,6 +25,7 @@ class EventDetails:
     commission: Decimal | None = None
     tax: Decimal | None = None
     slippage: Decimal | None = None
+    spread: Decimal | None = None
     cash: Decimal | None = None
     equity: Decimal | None = None
 
@@ -65,6 +66,7 @@ class EngineState:
                 commission=resolved.commission,
                 tax=resolved.tax,
                 slippage=resolved.slippage,
+                spread=resolved.spread,
                 cash=resolved.cash,
                 equity=resolved.equity,
             )

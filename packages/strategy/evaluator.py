@@ -3,13 +3,17 @@
 from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import Final, override
+from zoneinfo import ZoneInfo
 
 from packages.backtest.models import (
+    CancelIntent,
     OrderIntent,
+    OrderState,
     OrderType,
     PortfolioSnapshot,
     Position,
     Side,
+    StrategyDecision,
     TimeInForce,
 )
 from packages.backtest.ports import EvaluationContext, StrategyEvaluator
@@ -88,7 +92,7 @@ class DslStrategyEvaluator(StrategyEvaluator):
         self._runtime: dict[str, _PositionRuntime] = {}
 
     @override
-    def evaluate(self, context: EvaluationContext) -> tuple[OrderIntent, ...]:
+    def evaluate(self, context: EvaluationContext) -> tuple[StrategyDecision, ...]:
         instrument_id = context.current_bar.instrument_id
         if instrument_id not in self._definition.universe:
             return ()
@@ -96,9 +100,54 @@ class DslStrategyEvaluator(StrategyEvaluator):
         position = _find_position(context.portfolio, instrument_id)
         runtime = self._sync_position(context, position)
         state = _MarketState(portfolio=context.portfolio, position=position, runtime=runtime)
+        flatten = self._evaluate_flatten(context, position)
+        if flatten is not None:
+            return flatten
         if position is None or position.quantity == 0:
             return self._evaluate_entry(context, history, state)
         return self._evaluate_exit(context, history, position, state)
+
+    def _evaluate_flatten(
+        self, context: EvaluationContext, position: Position | None
+    ) -> tuple[StrategyDecision, ...] | None:
+        session = self._definition.session
+        clock = context.current_bar.timestamp.astimezone(ZoneInfo("America/New_York")).strftime(
+            "%H:%M"
+        )
+        if session is None or session.flatten_at is None or clock < session.flatten_at:
+            return None
+        pending = tuple(
+            order
+            for order in context.pending_orders
+            if order.state is OrderState.ACCEPTED
+            and order.intent.instrument_id == context.current_bar.instrument_id
+        )
+        quantity = position.quantity if position is not None else 0
+        retained = next(
+            (
+                order
+                for order in pending
+                if order.intent.rule_path == "session/flatten"
+                and order.intent.order_type is OrderType.MARKET
+                and order.intent.side is Side.SELL
+                and order.remaining_quantity == quantity
+                and quantity > 0
+            ),
+            None,
+        )
+        cancellations: tuple[StrategyDecision, ...] = tuple(
+            CancelIntent(
+                order_id=order.order_id,
+                submitted_at=context.current_bar.timestamp,
+                reason="session/flatten cancels pending entry/exit before market replacement",
+            )
+            for order in pending
+            if order is not retained
+        )
+        if quantity == 0 or retained is not None:
+            return cancellations
+        trace = _Trace(self._version_id, "session/flatten", "close-based session flatten signal")
+        return (*cancellations, _build_order(context, Side.SELL, quantity, OrderRule(), trace))
 
     def _sync_position(
         self, context: EvaluationContext, position: Position | None
@@ -139,6 +188,17 @@ class DslStrategyEvaluator(StrategyEvaluator):
     def _evaluate_entry(
         self, context: EvaluationContext, history: tuple[Bar, ...], state: _MarketState
     ) -> tuple[OrderIntent, ...]:
+        session = self._definition.session
+        if session is not None:
+            local = context.current_bar.timestamp.astimezone(ZoneInfo("America/New_York"))
+            clock = local.strftime("%H:%M")
+            if (
+                local.weekday() not in session.weekdays
+                or (session.entry_start is not None and clock < session.entry_start)
+                or (session.entry_end is not None and clock >= session.entry_end)
+                or (session.flatten_at is not None and clock >= session.flatten_at)
+            ):
+                return ()
         result = _evaluate_condition(self._definition.entry.condition, history, state, "entry")
         if not result.available or not result.value:
             return ()
@@ -313,7 +373,15 @@ def _resolve_indicator(ref: IndicatorRef, window: tuple[Bar, ...]) -> Decimal | 
     end = len(window) - ref.shift
     if end < 0:
         return None
-    return compute_indicator(ref.indicator, ref.period, window[:end])
+    return compute_indicator(
+        ref.indicator,
+        ref.period,
+        window[:end],
+        stddev_multiplier=ref.stddev_multiplier,
+        fast_period=ref.fast_period,
+        slow_period=ref.slow_period,
+        signal_period=ref.signal_period,
+    )
 
 
 def _resolve_position_field(
@@ -444,9 +512,9 @@ def _build_order(
     trace: _Trace,
 ) -> OrderIntent:
     reference_price = context.current_bar.close
-    order_type = OrderType.MARKET if order_rule.order_type == "market" else OrderType.LIMIT
+    order_type = OrderType(order_rule.order_type)
     limit_price: Decimal | None = None
-    if order_rule.order_type == "limit" and order_rule.limit_offset_bps is not None:
+    if order_rule.limit_offset_bps is not None:
         offset = order_rule.limit_offset_bps / _BASIS_POINTS
         sign = Decimal(1) if side is Side.BUY else Decimal(-1)
         limit_price = reference_price * (Decimal(1) + sign * offset)
@@ -457,6 +525,12 @@ def _build_order(
         quantity=quantity,
         order_type=order_type,
         limit_price=limit_price,
+        stop_price=(
+            reference_price
+            * (1 + (1 if side is Side.BUY else -1) * order_rule.stop_offset_bps / _BASIS_POINTS)
+            if order_rule.stop_offset_bps is not None
+            else None
+        ),
         time_in_force=TimeInForce.DAY if order_rule.time_in_force == "day" else TimeInForce.GTC,
         reason=trace.reason,
         strategy_version=trace.strategy_version,

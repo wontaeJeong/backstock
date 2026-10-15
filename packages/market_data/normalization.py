@@ -31,6 +31,7 @@ class BarNormalization:
     volume_adjustment: AdjustmentMode
     provider: str
     max_rows: int = 1_000_000
+    interval: str = "1d"
 
 
 def bars_from_csv(
@@ -65,6 +66,8 @@ def bars_from_frame(
             retryable=False,
         )
     try:
+        if normalization.interval == "tick":
+            return _ticks_from_frame(frame, normalization)
         timestamp_column = _first_column(frame, ("timestamp", "Date", "Datetime"))
         columns = [timestamp_column, "Open", "High", "Low", "Close", "Volume"]
         if "open" in frame.columns:
@@ -99,6 +102,49 @@ def bars_from_frame(
             message="provider payload could not be normalized as daily bars",
             retryable=False,
         ) from error
+
+
+def _ticks_from_frame(frame: pl.DataFrame, normalization: BarNormalization) -> tuple[Bar, ...]:
+    if (
+        normalization.price_adjustment is not AdjustmentMode.RAW
+        or normalization.volume_adjustment is not AdjustmentMode.RAW
+    ):
+        message = "tick data must be raw"
+        raise ValueError(message)
+    columns = ["timestamp", "price", "size"]
+    columns.extend(name for name in ("bid", "ask") if name in frame.columns)
+    rows: list[Bar] = []
+    for raw in frame.select(columns).iter_rows(named=True):
+        timestamp, provenance = _timestamp(raw["timestamp"], normalization.instrument.timezone)
+        price, size = _decimal(raw["price"]), _integer(raw["size"])
+        if (
+            provenance is not TimestampProvenance.EXPLICIT_OFFSET
+            or not price.is_finite()
+            or price <= 0
+            or size < 0
+            or (rows and timestamp <= rows[-1].timestamp)
+        ):
+            message = (
+                "tick rows require aware unique ascending timestamps, "
+                "positive price and nonnegative size"
+            )
+            raise ValueError(message)
+        rows.append(
+            Bar(
+                instrument_id=normalization.instrument.instrument_id,
+                timestamp=timestamp,
+                open=price,
+                high=price,
+                low=price,
+                close=price,
+                volume=size,
+                price_adjustment=AdjustmentMode.RAW,
+                volume_adjustment=AdjustmentMode.RAW,
+                bid=_decimal(raw["bid"]) if raw.get("bid") is not None else None,
+                ask=_decimal(raw["ask"]) if raw.get("ask") is not None else None,
+            )
+        )
+    return tuple(rows)
 
 
 def actions_from_yahoo_csv(

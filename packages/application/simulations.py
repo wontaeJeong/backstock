@@ -2,12 +2,14 @@ import hashlib
 import json
 import re
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from time import monotonic
 from zoneinfo import ZoneInfo
 
 from packages.application.research_data import acquire_research_data
+from packages.application.research_store import verified_payload
+from packages.application.simulation_history import HistoryEvaluator
 from packages.application.simulation_models import (
     MAX_SIMULATION_BARS,
     SimulationMetrics,
@@ -31,10 +33,16 @@ MAX_RUN_SECONDS = 15
 
 
 class RunDeadline:
-    def __init__(self, clock: Callable[[], float] = monotonic) -> None:
+    def __init__(
+        self, clock: Callable[[], float] = monotonic, deadline: float | None = None
+    ) -> None:
         """Bound engine work cooperatively between bars, not external I/O."""
         self._clock = clock
-        self._deadline = clock() + MAX_RUN_SECONDS
+        self._deadline = (
+            min(clock() + MAX_RUN_SECONDS, deadline)
+            if deadline is not None
+            else clock() + MAX_RUN_SECONDS
+        )
 
     def should_cancel(self, processed_events: int) -> bool:
         del processed_events
@@ -47,7 +55,14 @@ class SimulationService:
         self._root = root
         self._revision = code_revision
 
-    def run(self, request: SimulationRequest) -> SimulationReport:
+    def run(
+        self,
+        request: SimulationRequest,
+        *,
+        trade_start: datetime | None = None,
+        trade_end: datetime | None = None,
+        deadline: float | None = None,
+    ) -> SimulationReport:
         manifest = acquire_research_data(self._root, request)
         if manifest.row_count > MAX_SIMULATION_BARS:
             msg = f"MVP는 실행당 {MAX_SIMULATION_BARS}개 bar까지 지원합니다."
@@ -62,10 +77,25 @@ class SimulationService:
             msg = "시뮬레이션에는 최소 2개 bar가 필요합니다."
             raise ValueError(msg)
         _validate_intraday(bars, manifest.interval)
+        history = tuple(
+            bar for bar in bars if trade_start is not None and bar.timestamp < trade_start
+        )
+        bars = tuple(
+            bar
+            for bar in bars
+            if (trade_start is None or bar.timestamp >= trade_start)
+            and (trade_end is None or bar.timestamp < trade_end)
+        )
+        if len(bars) < MIN_BARS:
+            msg = "평가 구간에는 최소 2개 bar가 필요합니다."
+            raise ValueError(msg)
         version = create_strategy_version(request.strategy)
         config = BacktestConfig(
             initial_cash=request.initial_cash,
             bar_interval=request.strategy.timeframe,
+            spread_bps=request.spread_bps,
+            latency_ms=request.latency_ms,
+            volume_participation=request.volume_participation,
             costs=CostConfig(
                 commission_rate=request.commission_bps / 10000,
                 sell_tax_rate=request.sell_tax_bps / 10000,
@@ -86,10 +116,13 @@ class SimulationService:
                 strategy_version=version.version_id,
                 code_revision=self._revision,
             ),
-            DslStrategyEvaluator(request.strategy, version.version_id),
-            cancellation=RunDeadline(),
+            HistoryEvaluator(DslStrategyEvaluator(request.strategy, version.version_id), history),
+            cancellation=RunDeadline(deadline=deadline),
         )
         warnings = [
+            "체결 가정: spread/latency 시나리오이며 실제 queue·충격·부분 체결을 재현하지 않습니다. "
+            "volume_participation=null은 유동성 보장이 아닌 무제한 가정입니다. "
+            "bar 지연은 다음 eligible open까지 올림하며 OHLC 내부 경로는 알 수 없습니다.",
             "과거 수익률은 미래 수익을 보장하지 않습니다. 실주문 기능은 없습니다.",
             "종가 확정 후 판단하고 다음 bar 시가부터 체결합니다. "
             "손절·익절은 종가 조건이며 보호 주문이 아닙니다.",
@@ -99,6 +132,12 @@ class SimulationService:
             "거래소 휴장·조기폐장 calendar가 없어 데이터 완전성을 보장하지 않습니다. "
             "누락을 채우지 않습니다.",
         ]
+        warnings.extend(_session_warnings(request))
+        if trade_start is not None or trade_end is not None:
+            warnings.append(
+                f"Evaluation range: {bars[0].timestamp.isoformat()} .. "
+                f"{bars[-1].timestamp.isoformat()}; warmup bars={len(history)}; fresh capital."
+            )
         if manifest.provider == "synthetic_demo":
             warnings.insert(
                 0, "합성 데모 데이터입니다. 실제 나스닥 과거 시세나 투자 성과가 아닙니다."
@@ -152,11 +191,8 @@ class SimulationService:
         path = self._root / "runs" / f"{run_id}.json"
         if not path.is_file():
             return None
-        report = SimulationReport.model_validate_json(path.read_bytes())
-        if report.run_id != run_id or _report_hash(report) != run_id:
-            msg = "저장된 실행 결과의 무결성 검증에 실패했습니다."
-            raise ValueError(msg)
-        return report
+        payload = verified_payload(path, run_id, "run_id")
+        return SimulationReport.model_validate(payload)
 
 
 def _report_hash(report: SimulationReport) -> str:
@@ -164,6 +200,15 @@ def _report_hash(report: SimulationReport) -> str:
         report.model_dump(mode="json", exclude={"run_id"}), sort_keys=True, separators=(",", ":")
     ).encode()
     return hashlib.sha256(payload).hexdigest()
+
+
+def _session_warnings(request: SimulationRequest) -> list[str]:
+    if request.strategy.session is not None and request.strategy.session.flatten_at is not None:
+        return [
+            "마감 청산은 종가 기반 신호입니다. 다음 이벤트 부재·지연으로 미체결/보유가 "
+            "남을 수 있으며 강제 종가 체결하지 않습니다."
+        ]
+    return []
 
 
 def _validate_manifest(manifest: SnapshotManifest, request: SimulationRequest) -> None:
@@ -182,6 +227,24 @@ def _validate_manifest(manifest: SnapshotManifest, request: SimulationRequest) -
 
 
 def _validate_intraday(bars: tuple[Bar, ...], interval: str) -> None:
+    if interval == "tick":
+        previous_tick: datetime | None = None
+        for bar in bars:
+            local = bar.timestamp.astimezone(ZoneInfo("America/New_York"))
+            minute = local.hour * 60 + local.minute
+            if (
+                bar.price_adjustment != "raw"
+                or bar.volume_adjustment != "raw"
+                or bar.timestamp_provenance != "explicit_offset"
+                or local.weekday() >= SATURDAY
+                or not SESSION_OPEN_MINUTES <= minute < SESSION_CLOSE_MINUTES
+                or (previous_tick is not None and bar.timestamp <= previous_tick)
+                or not bar.open == bar.high == bar.low == bar.close
+            ):
+                message = "tick requires raw, unique ordered aware regular-session point events"
+                raise ValueError(message)
+            previous_tick = bar.timestamp
+        return
     if interval == "1d":
         dates = {bar.timestamp.astimezone(ZoneInfo("America/New_York")).date() for bar in bars}
         if len(dates) != len(bars):

@@ -56,6 +56,129 @@
   gap: 24px;
 }
 
+.research-grid[hidden] {
+  display: none;
+}
+.workbench-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.workbench-nav [aria-pressed="true"] {
+  background: var(--accent-primary);
+  color: var(--text-inverse, white);
+}
+.feature-panel {
+  min-width: 0;
+  padding: clamp(12px, 2vw, 24px);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--surface-panel);
+}
+.feature-panel fieldset {
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.feature-panel h3 {
+  margin-top: 24px;
+}
+.feature-panel p,
+.feature-panel li {
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.feature-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  margin: 12px 0;
+}
+.feature-scroll table {
+  border-collapse: collapse;
+  min-width: 800px;
+  font-size: 14px;
+}
+.feature-scroll th,
+.feature-scroll td {
+  min-width: 140px;
+  max-width: 360px;
+  padding: 12px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border-subtle);
+  overflow-wrap: anywhere;
+}
+.feature-scroll svg {
+  display: block;
+  min-width: 900px;
+  max-width: none;
+  color: var(--text-primary);
+}
+.feature-scroll text {
+  fill: currentColor;
+}
+.feature-statistics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+.feature-statistics > div {
+  padding: 12px;
+  background: var(--surface-elevated);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.feature-statistics dt {
+  font-weight: 600;
+}
+.feature-statistics code {
+  display: block;
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+.feature-statistics dd {
+  margin: 8px 0;
+  font-size: 18px;
+}
+.feature-statistics small {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+.library-list {
+  list-style: none;
+  padding: 0;
+}
+.library-list > li {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.library-list code {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+.form-field textarea {
+  width: 100%;
+  min-width: 0;
+  font-family: monospace;
+  font-size: 14px;
+  padding: 10px;
+  color: var(--text-primary);
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+}
+@media (max-width: 600px) {
+  :where(.feature-panel) .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .strategy-editor,
 .research-output {
   min-width: 0;

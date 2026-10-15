@@ -110,3 +110,59 @@ Validation:
   부분 JSON/Parquet를 성공 결과로 읽지 않게 한다.
 - CI는 실제 DB·컨테이너·브라우저를 검증한다. 운영 배포 대상이 없어 CD는 수동 artifact 발행까지이며
   공개 운영 전 인증·quota·백업과 공급망 정책이 필요하다. 새 PR은 별도 승인 없이 병합하지 않는다.
+
+## 2026-10-16 연구 확장 — 보관함·분석·실험
+
+- 기존 filesystem authority를 유지해 전략 record/실험을 content-addressed write-once JSON으로
+  보존한다. archive는 원본을 수정하지 않는 atomic sidecar 상태다. DB migration은 없다.
+- 분석은 FIFO matched lot 기준이며 열린 lot을 승률에서 제외한다. 일/월 수익률은 뉴욕 날짜의
+  마지막 관측 equity, volatility/Sharpe/Sortino는 252일 관례를 쓴다. CAGR은 평가 구간 실제
+  경과일을 쓰고 하루 미만은 정의하지 않는다. null 이유와 계산식을 API에 포함한다.
+- walk-forward는 rolling train→test, 학습 total return 선택/동률 입력 순서다. 각 test는 새 자본과
+  evaluator로 시작하며 사전 history는 지표 warmup에만 쓴다. OOS 복리 계좌를 가장하지 않는다.
+- 포트폴리오는 독립 고정 예산이고 비할당 자금은 현금이다. 공통 timestamp만 합치며 실패한
+  component가 있으면 합계/상관계수를 제공하지 않는다. demo 상관을 시장 분산효과로 보지 않는다.
+- 연구 API는 64 KiB body·동시 2개 threadpool·실험 30초 cooperative 계산 예산을 사용한다.
+  공급자 I/O는 별도 timeout이므로 HTTP wall time 30초 보장은 아니다.
+- 상세 wire 계약·경로 allowlist·분모·제한은 `docs/reference/research-features-api.md`에 기록한다.
+
+## 2026-10-16 수동 paper 연습
+
+- 실제 broker 연결 대신 별도 paper 계좌/승인/원장을 구현한다. paper 기능은 기본 활성화지만
+  feature-off가 가능하며 production broker 플래그는 paper 실행 방식을 바꾸지 못한다.
+- 수동 quote는 과거/시나리오 입력으로서 freshness를 검증하지 않는다. 최신 제출 mark로 평가하고
+  승인 가격은 후보의 고정 참조가다. 비용 기본값은 commission/sell-tax/slippage 1/0/5 bps다.
+- long-only 정수 수량, 계좌 초기 현금 1e9 이하, 주문 참조/실행 notional 1e6 이하를 적용한다.
+  보유 원가는 매수 비용을 포함한 이동평균이며 통화별 minor-unit 반올림/환전은 지원하지 않는다.
+- 요청 키는 계좌별 operation+target+정규화 payload에 바인딩한다. exact replay는 저장된 당시 응답이고
+  클라이언트는 POST 이후 반드시 현재 계좌를 다시 조회한다. 생성 요청은 자동 재시도하지 않는다.
+- 같은 계좌 flock과 한 원자적 계좌 JSON에 현금/체결/감사/요청 바인딩을 묶는다. 응답/감사 commit
+  사본은 먼저 write-once로 저장하고 해시 참조를 커밋한다. 교체 전 장애의 미참조 사본은 허용한다.
+  POSIX 로컬 filesystem용이고 NFS/분산 거래 저장소가 아니다. DB migration은 없다.
+- kill switch 중에도 안전한 취소/거절/mark/조회/내부 원장 대사를 유지한다. 대사는 외부 broker
+  비교가 아니다. 자세한 오류·한도·재시도·응답 계약은 같은 API reference의 Task 3 절에 고정한다.
+
+## 2026-10-16 워크벤치 통합
+
+- 기존 간편 폼으로 정확히 표현할 수 없는 중첩 조건·sizing·risk는 고급 JSON을 authoritative 편집기로
+  사용한다. JSON에서 이름·universe·timeframe을 보존하고 간편 전략 폼을 비활성화한다. 원금·비용은
+  별도 실행 설정이다. 자동 폼 변환으로 AST를 잘라내지 않는다.
+- 가격은 검증된 snapshot bar/quote만 사용한다. 25개 창의 종가/tick print 선과 정확한 timestamp의
+  실제 체결 표식을 제공하며, OHLC 상세와 자산 상태는 별도 표로 읽는다. equity를 주가로 복제하지 않는다.
+- portfolio 파생 통계는 보수적으로 모든 component 성공·비어 있지 않은 curve·제외 timestamp 없음일
+  때만 제공한다. 공통 구간 일부만으로 전체 예산 성과를 가장하지 않기 위한 결정이다. 원본 curve와
+  artifacts는 그대로 보존하며 DB migration이나 과거 artifact rewrite는 없다.
+- 비교 선택·최근 실험 ID·선택 paper 계좌만 브라우저에 보존하며 authoritative 결과/계좌는 서버 GET이다.
+  원본 전체 JSON·CSV는 서버 기록을 보존한다. 공개 배포용 인증/분산 상태 저장이라고 주장하지 않는다.
+
+## 2026-10-16 워크벤치 scoped review 수정
+
+- 이전 절의 sizing/risk JSON 전용 결정은 비개발자 요구에 미달하여 대체한다. fixed quantity/notional,
+  percent equity, ATR risk와 %/ATR stop-loss/take-profit/trailing 및 기간/배수·요일은 한국어 폼으로 제공한다.
+  가져온 중첩 조건 AST를 유지하면서 해당 설정 분기만 수정한다. 단위 변환은 문자열 자릿수 이동이며
+  수량/손익/위험 계산은 여전히 서버만 수행한다. 불완전 폼 입력을 이전 JSON으로 대신 실행하지 않는다.
+- 비동기 분석은 run/snapshot identity별 소유자로 격리한다. CSV·replay·출처와 다른 실행 통계를 섞지 않는다.
+  QQQ 결과는 기준 run과 benchmark choice, 비교 결과는 선택 집합 소유다. 오류/늦은 응답은 해당 소유권을
+  벗어나 적용하지 않는다. manifest provider의 미확인 출처를 Yahoo로 추정하지 않는다.
+- paper 후보 작업 목록도 모든 원본 후보를 25건 페이지/검색으로 탐색한다. kill 중 안전한 종료 작업을
+  유지하고 모든 POST 이후 current GET 계약을 유지한다. 보관함 검색은 제출 조건과 편집 텍스트를 분리한다.

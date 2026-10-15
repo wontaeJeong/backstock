@@ -15,6 +15,20 @@ const fields: { value: OperandKind; label: string }[] = [
   { value: "volume_ratio", label: "평균 대비 거래량" },
   { value: "return", label: "기간 수익률 (소수)" },
   { value: "constant", label: "직접 입력한 숫자" },
+  ...(
+    [
+      "vwap",
+      "bollinger_middle",
+      "bollinger_upper",
+      "bollinger_lower",
+      "macd",
+      "macd_signal",
+      "macd_histogram",
+      "rolling_high",
+      "rolling_low",
+      "volume_average",
+    ] as const
+  ).map((value) => ({ value, label: value })),
 ]
 const ops = [
   ["gt", "보다 큼 (>)"],
@@ -50,7 +64,7 @@ function ValueEditor({
           </option>
         ))}
       </select>
-      {indicator && (
+      {indicator && !value.kind.startsWith("macd") && (
         <label className="inline-input">
           기간 (bar 수)
           <input
@@ -61,6 +75,36 @@ function ValueEditor({
             value={value.period}
             onChange={(event) => onChange({ ...value, period: event.target.value })}
             required
+          />
+        </label>
+      )}
+      {value.kind.startsWith("macd") &&
+        (
+          [
+            ["fast", "빠른 기간", "12"],
+            ["slow", "느린 기간", "26"],
+            ["signal", "signal 기간", "9"],
+          ] as const
+        ).map(([key, title, fallback]) => (
+          <label className="inline-input" key={key}>
+            {title}
+            <input
+              aria-label={`${label} ${title}`}
+              type="number"
+              min="1"
+              max="5000"
+              value={value[key] ?? fallback}
+              onChange={(e) => onChange({ ...value, [key]: e.target.value })}
+            />
+          </label>
+        ))}
+      {value.kind.startsWith("bollinger") && (
+        <label className="inline-input">
+          표준편차 배수
+          <input
+            aria-label={`${label} 표준편차 배수`}
+            value={value.multiplier ?? "2"}
+            onChange={(e) => onChange({ ...value, multiplier: e.target.value })}
           />
         </label>
       )}

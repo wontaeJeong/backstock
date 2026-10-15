@@ -9,8 +9,12 @@
 open-labelled 파일을 그대로 넣지 말고 종료 시각으로 변환해야 한다. 명시적 UTC offset이 필요하며,
 뉴욕 정규장 09:30~16:00 bar 종료 시각·동일 날짜 내 간격을 검사한다. 구간 첫/마지막 날은 부분
 세션일 수 있다. 휴장·조기폐장·날짜 전체 누락은 calendar가 없어 검증하지 못한다. 누락을 보간하지 않는다.
-limit 체결의 정확한 장중 시각과 bar 내부 경로는 재현하지 않는다. 시장가/전량 체결 근사이며
-스프레드·호가 queue·체결 지연·부분 체결은 미검증이다. 초단타 실전 유효성의 증거로 사용하면 안 된다.
+limit 체결의 정확한 장중 시각과 bar 내부 경로는 재현하지 않는다. open 실행-side 가격이 이미
+limit을 충족하면 open 시각, 이후 range touch로만 충족하면 보수적으로 bar 종료 시각에 기록한다.
+stop-limit의 알려진 gap trigger는 open에 유지하고 이후 limit touch 체결과 시각을 구분한다.
+종료 시각 체결의 원장 이벤트는 해당 close로 평가한다. 시장가/전량 체결 근사이며
+스프레드·체결 지연은 선언한 시나리오이고 호가 queue·실제 지연·부분 체결은 미검증이다.
+초단타 실전 유효성의 증거로 사용하면 안 된다.
 같은 종목에 미체결 주문이 있으면 중복 주문은 거절한다. 분봉 DAY는 세션 경계에 만료하며
 일봉 DAY는 다음 eligible bar에서 미체결이면 만료한다. 종가 손절·익절은 거래소 보호 주문이 아니다.
 
@@ -63,10 +67,30 @@ OHLC만으로 bar 내부 순서를 알 수 없다. Stop과 target이 모두 닿�
 
 tick/lot size, volume participation, partial fill, market closed, trading halt, stale quote, price limit, insufficient cash, duplicate order를 고려한다. 미구현 항목은 결과 제한으로 표시한다.
 
-현재 일봉 실행 모델은 MARKET/LIMIT, DAY/GTC, long-only를 지원한다. 매수 limit은 bar open이 limit보다
+현재 실행 모델은 MARKET/LIMIT/STOP/STOP_LIMIT, DAY/GTC, long-only를 지원한다. 매수 limit은 bar open이 limit보다
 유리하면 open에, 아니면 low가 limit에 닿았을 때 limit에 체결한다. 매도는 대칭 규칙을 사용한다. 체결 전
-현금과 보유 수량을 다시 검사하고, 부족하면 주문을 명시적으로 거절한다. partial fill, stop, volume
-participation, 거래소 calendar 제약은 아직 지원하지 않는다.
+현금과 보유 수량을 다시 검사하고, 부족하면 주문을 명시적으로 거절한다. 거래량 참여율은 선택적인
+전량 또는 미체결 가정이며 기본 null은 제한 없음이다. partial fill과 거래소 calendar는 지원하지 않는다.
+
+### 고해상도 연구 시나리오
+
+tick은 raw·명시적 timezone·unique ascending timestamp의 price/size와 선택적 bid/ask를 재생한다.
+가격은 양수, size는 0 이상 정수, quote는 양수 bid≤ask 쌍이다. 정규화 시 OHLC=print, volume=size며
+원본과 Parquet checksum으로 보존한다. remote tick과 주문장 queue 재현은 없다.
+
+tick 주문은 신호 이후의 이벤트, 분봉 주문은 신호 이후 다음 bar open부터 eligibility를 판정한다.
+latency_ms는 신호 시각부터 0..60000ms이며 bar grid 사이 시각은 다음 open까지 보수적으로 올린다.
+spread_bps=0 기본이고 제공 quote가 없으면 참조가의 ±half spread, 이후 adverse slippage다.
+제공 quote는 midpoint 참조·buy ask/sell bid·별도 slippage이며 시나리오 spread를 추가하지 않는다.
+spread와 slippage 진단값은 서로 겹치지 않고 execution price에 이미 반영되어 재차 공제하지 않는다.
+전체 bar volume을 사용하는 참여율은 사후 유동성 시나리오이지 open의 실제 관측 잔량이 아니다.
+
+stop은 불리한 open gap을 그대로 사용한다. intrabar touch 시각은 알 수 없어 close로 기록한다.
+stop-limit이 intrabar에서 발동하면 같은 bar limit 체결을 가정하지 않으며 trigger state를 유지해
+이후 데이터만 사용한다. open trigger는 이후 range touch를 사용할 수 있다. pending 중복을 거절하고
+발동·만료·거절을 추적한다. 뉴욕 세션 weekday/clock은 신호 시각에 적용한다. 마감 flatten은 close
+기반 market intent이며 다음 eligible event가 없으면 미체결/보유로 남긴다. 일봉 date label에 intraday
+clock controls를 적용하지 않는다. 세부 schema/CSV는 `docs/reference/research-features-api.md`를 따른다.
 
 주문과 취소 intent의 timestamp는 현재 strategy evaluation bar와 같아야 하며, 다른 시점의 취소는 현재
 bar timestamp의 `order_cancel_rejected` event로 남기고 적용하지 않는다.

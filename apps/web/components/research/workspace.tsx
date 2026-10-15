@@ -1,8 +1,10 @@
+/* biome-ignore-all lint/complexity/useLiteralKeys: TypeScript requires indexed access for server JSON records. */
 "use client"
 
 import { type ChangeEvent, type FormEvent, useLayoutEffect, useState } from "react"
 import { z } from "zod"
 import { apiErrorMessage } from "../../lib/api-error"
+import { importDraft } from "../../lib/features"
 import {
   buildRequest,
   buildStrategy,
@@ -12,10 +14,18 @@ import {
   simulationReportSchema,
   starterDraft,
 } from "../../lib/research"
+import { updateDraftSetting } from "../../lib/strategy-form"
 import { ActionButton, FormField, StatusBadge } from "../ui"
+import { AnalysisPanel } from "./analysis-panel"
 import { DataControls } from "./data-controls"
+import { ExecutionControls } from "./execution-controls"
+import { ExperimentPanel } from "./experiment-panel"
+import { LibraryPanel } from "./library-panel"
+import { PaperPanel } from "./paper-panel"
 import { ResultView } from "./result-view"
+import { RiskControls } from "./risk-controls"
 import { RuleBuilder } from "./rule-builder"
+import { StrategyJson } from "./strategy-json"
 
 function focusInMain(target: HTMLElement | null) {
   const main = target?.closest("main")
@@ -48,16 +58,25 @@ export function ResearchWorkspace() {
   const [history, setHistory] = useState<SimulationReport[]>([])
   const [signature, setSignature] = useState("")
   const [restoreId, setRestoreId] = useState("")
+  const [panel, setPanel] = useState("전략 편집")
   useLayoutEffect(() => {
-    if (!report) return
+    if (panel !== "전략 편집") focusInMain(document.getElementById("workbench-panel-title"))
+  }, [panel])
+  useLayoutEffect(() => {
+    if (!report || panel !== "전략 편집") return
     focusInMain(document.getElementById("result-title"))
-  }, [report])
+  }, [report, panel])
   useLayoutEffect(() => {
     if (error && !busy && failureId > 0) focusInMain(document.getElementById("execution-error"))
   }, [error, busy, failureId])
   const fingerprint = JSON.stringify({ draft, snapshotId })
   const update = <K extends keyof Draft>(key: K, value: Draft[K]) => {
-    setDraft((previous) => ({ ...previous, [key]: value }))
+    const next =
+      key === "advancedJson" && typeof value === "string"
+        ? importDraft(draft, value)
+        : updateDraftSetting(draft, key, value)
+    setDraft(next)
+    if (next.symbol !== draft.symbol || next.interval !== draft.interval) setSnapshotId(undefined)
     if (["symbol", "interval", "start", "end"].includes(key)) setSnapshotId(undefined)
     setError("")
   }
@@ -196,9 +215,48 @@ export function ResearchWorkspace() {
         <StatusBadge label="실주문 없음 · 연구용 MVP" tone="info" />
       </header>
       <p className="research-disclaimer">
-        과거 성과는 미래 수익을 보장하지 않습니다. 초단타는 분봉 근사 실험까지만 지원하며 호가·실제
-        체결 지연은 검증하지 않습니다.
+        과거 성과는 미래 수익을 보장하지 않습니다. 분봉·tick/quote 재생은 연구 시나리오이며 실제
+        호가 queue·체결 지연·초단타 실전 유효성을 검증하지 않습니다.
       </p>
+      <nav className="workbench-nav" aria-label="연구 작업 선택">
+        {["전략 편집", "보관함", "상세 분석", "실험", "Paper 연습"].map((name) => (
+          <ActionButton key={name} aria-pressed={panel === name} onClick={() => setPanel(name)}>
+            {name}
+          </ActionButton>
+        ))}
+      </nav>
+      {panel === "보관함" && (
+        <LibraryPanel
+          strategy={() => buildStrategy(draft)}
+          onStrategy={(value) => update("advancedJson", JSON.stringify(value, null, 2))}
+          onSnapshot={(value) => {
+            setSnapshotId(String(value["snapshot_id"]))
+            setDraft((previous) => ({
+              ...previous,
+              source: "snapshot",
+              symbol: String(value["canonical_symbol"]) as Draft["symbol"],
+              interval: String(value["interval"]) as Draft["interval"],
+            }))
+          }}
+          onRun={(value) => {
+            showResult(value, "restored")
+            setPanel("전략 편집")
+          }}
+        />
+      )}
+      {panel === "상세 분석" && (
+        <AnalysisPanel report={report} onRun={(value) => showResult(value, "restored")} />
+      )}
+      {panel === "실험" && (
+        <ExperimentPanel
+          request={() => buildRequest(draft, snapshotId)}
+          onRun={(value) => {
+            showResult(value, "restored")
+            setPanel("상세 분석")
+          }}
+        />
+      )}
+      {panel === "Paper 연습" && <PaperPanel />}
       {error && (
         <div className="error-notice" id="execution-error" role="alert" tabIndex={-1}>
           <strong>실행하지 못했습니다.</strong>
@@ -206,7 +264,13 @@ export function ResearchWorkspace() {
           <p>입력은 보존되어 있습니다. 설정을 확인한 뒤 다시 시도하세요.</p>
           <ActionButton
             onClick={() =>
-              focusInMain(document.querySelector<HTMLElement>("#strategy-editor select"))
+              focusInMain(
+                document.querySelector<HTMLElement>(
+                  draft.advancedJson !== undefined
+                    ? "#strategy-editor textarea"
+                    : "#strategy-editor select",
+                ),
+              )
             }
           >
             입력 다시 확인
@@ -218,7 +282,7 @@ export function ResearchWorkspace() {
           데이터를 확인하고 계산하고 있습니다. 완료 전까지 중복 실행을 막습니다.
         </p>
       )}
-      <div className="research-grid">
+      <div className="research-grid" hidden={panel !== "전략 편집"}>
         <form className="strategy-editor" id="strategy-editor" onSubmit={submit}>
           <fieldset disabled={busy} className="editor-fieldset">
             <legend className="visually-hidden">전략과 실행 설정</legend>
@@ -233,89 +297,61 @@ export function ResearchWorkspace() {
                 setSnapshotId(undefined)
               }}
             />
-            <section className="editor-section" aria-labelledby="strategy-heading">
-              <h3 id="strategy-heading">
-                <span className="editor-step">02</span> 나의 매매 규칙
-              </h3>
-              <FormField
-                id="strategy-name"
-                label="전략 이름"
-                value={draft.name}
-                onChange={(event) => update("name", event.target.value)}
-                maxLength={200}
-                required
-              />
-              <p className="helper">
-                템플릿에서 시작하거나 모든 조건을 직접 바꾸세요. 어떤 전략도 수익을 보장하지
-                않습니다.
-              </p>
-              <div className="starter-buttons">
-                <ActionButton onClick={() => setDraft(starterDraft("trend", draft))}>
-                  이동평균 교차
-                </ActionButton>
-                <ActionButton onClick={() => setDraft(starterDraft("reversion", draft))}>
-                  RSI 되돌림
-                </ActionButton>
-                <ActionButton onClick={() => setDraft(starterDraft("custom", draft))}>
-                  직접 조건 만들기
-                </ActionButton>
-              </div>
-              <details className="editor-disclosure" open>
-                <summary>매수 조건</summary>
-                <RuleBuilder
-                  title="매수"
-                  group={draft.entry}
-                  onChange={(value) => update("entry", value)}
-                />
-              </details>
-              <details className="editor-disclosure">
-                <summary>매도 조건</summary>
-                <RuleBuilder
-                  title="매도"
-                  group={draft.exit}
-                  onChange={(value) => update("exit", value)}
-                />
-              </details>
-            </section>
-            <details className="editor-section editor-disclosure">
-              <summary>03 · 손절·익절·보유 기간</summary>
-              <div className="form-grid">
-                <FormField
-                  id="stop-loss"
-                  label="손절 (%)"
-                  helper="비우면 사용 안 함"
-                  type="number"
-                  min="0.01"
-                  max="100"
-                  step="0.01"
-                  value={draft.stopLoss}
-                  onChange={(event) => update("stopLoss", event.target.value)}
-                />
-                <FormField
-                  id="take-profit"
-                  label="익절 (%)"
-                  type="number"
-                  min="0.01"
-                  max="100"
-                  step="0.01"
-                  value={draft.takeProfit}
-                  onChange={(event) => update("takeProfit", event.target.value)}
-                />
-              </div>
-              <FormField
-                id="holding-bars"
-                label="최대 보유 bar 수"
-                helper="비우면 기간 제한 없음. 장 마감 자동 청산은 하지 않습니다."
-                type="number"
-                min="1"
-                max="3000"
-                value={draft.holdingBars}
-                onChange={(event) => update("holdingBars", event.target.value)}
-              />
-              <p className="helper">
-                종가로 판단하는 청산 조건입니다. 장중 stop 주문이나 손실 상한 보장이 아닙니다.
-              </p>
+            <ExecutionControls draft={draft} update={update} />
+            <details
+              className="editor-disclosure"
+              open={draft.advancedJson !== undefined || undefined}
+            >
+              <summary>전략 JSON 편집·가져오기·내보내기</summary>
+              <StrategyJson draft={draft} onChange={(text) => update("advancedJson", text)} />
             </details>
+            <section className="editor-section" aria-labelledby="strategy-heading">
+              <fieldset className="editor-fieldset" disabled={draft.advancedJson !== undefined}>
+                <h3 id="strategy-heading">
+                  <span className="editor-step">02</span> 나의 매매 규칙
+                </h3>
+                <FormField
+                  id="strategy-name"
+                  label="전략 이름"
+                  value={draft.name}
+                  onChange={(event) => update("name", event.target.value)}
+                  maxLength={200}
+                  required
+                />
+                <p className="helper">
+                  템플릿에서 시작하거나 모든 조건을 직접 바꾸세요. 어떤 전략도 수익을 보장하지
+                  않습니다.
+                </p>
+                <div className="starter-buttons">
+                  <ActionButton onClick={() => setDraft(starterDraft("trend", draft))}>
+                    이동평균 교차
+                  </ActionButton>
+                  <ActionButton onClick={() => setDraft(starterDraft("reversion", draft))}>
+                    RSI 되돌림
+                  </ActionButton>
+                  <ActionButton onClick={() => setDraft(starterDraft("custom", draft))}>
+                    직접 조건 만들기
+                  </ActionButton>
+                </div>
+                <details className="editor-disclosure" open>
+                  <summary>매수 조건</summary>
+                  <RuleBuilder
+                    title="매수"
+                    group={draft.entry}
+                    onChange={(value) => update("entry", value)}
+                  />
+                </details>
+                <details className="editor-disclosure">
+                  <summary>매도 조건</summary>
+                  <RuleBuilder
+                    title="매도"
+                    group={draft.exit}
+                    onChange={(value) => update("exit", value)}
+                  />
+                </details>
+              </fieldset>
+            </section>
+            <RiskControls draft={draft} update={update} />
             <details className="editor-section editor-disclosure" open>
               <summary>04 · 매매 비용과 불리한 체결 가정</summary>
               <div className="form-grid">
