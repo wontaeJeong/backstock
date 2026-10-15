@@ -5,6 +5,8 @@
 Python 3.12 `uv` project, FastAPI adapter, worker entrypoint, Next.js web, Alembic migration,
 PostgreSQL과 Docker Compose 실행 기반이 구축되어 있다. market data provider, 순수 품질 검사,
 immutable Parquet snapshot, bounded `/datasets` API, 순수 이벤트 기반 일봉 backtest engine이 구현되어 있다.
+`packages/strategy`가 JSON AST 조건주문 DSL, indicator, `StrategyEvaluator` 구현체, canonical
+hash version, `/strategies/validate`·`/strategies/metadata` API, 4개 템플릿을 제공한다.
 
 ## 개요
 
@@ -77,6 +79,13 @@ OrderIntent/Risk -> Order -> Metrics`를 처리한다. 종가 전략 결정은 �
 대상이 된다. 원장과 비용은 Decimal이며 result에 order, fill, portfolio snapshot, benchmark, event log,
 재현성 metadata를 함께 반환한다. Prompt 07 전까지 risk 단계는 현금·보유 수량을 확인하는 내장
 pass-through 정책이고, Prompt 08에서 worker/job persistence와 연결한다.
+
+`DslStrategyEvaluator`는 `packages.backtest.ports.StrategyEvaluator`를 구현하며 엔진의
+`EvaluationContext`(현재 bar, 전체 종목이 섞인 누적 history, 포트폴리오 스냅샷)만 사용한다. evaluator는
+종목별로 직전 호출과 비교해 포지션 수량 변화를 관찰함으로써 진입가·진입 시점·고점을 자체 상태로
+추론하며(별도 DB나 주문 상태 조회 없이), 매 bar 지표 lookback이 부족하면 조건을 명시적으로
+false로 평가해 warm-up 기간에는 주문을 생성하지 않는다. 생성되는 `OrderIntent`는 항상 `market`/`limit`
+유형이며, `STOP` 계열 주문 유형과 gap/partial fill 등 체결 세부사항은 Prompt 07이 확장한다.
 
 ## 저장
 
