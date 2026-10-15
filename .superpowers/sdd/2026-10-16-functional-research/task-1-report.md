@@ -125,3 +125,43 @@ uv run mypy .                  Success: no issues found in 116 source files
   `SimulationRequest` 전체 schema를 재사용하므로 자동 전달된다. raw artifact hash loading은 기본값
   주입 전에 끝나야 한다는 순서를 유지해야 한다.
 - 부모 세션이 최종 UI 문구를 한국어로 구성할 수 있도록 원시 key/통계 definition은 보존했다.
+
+## Scoped fix round 1 — 공통 DAILY 상관 표본 (BASE `7c20226`)
+
+- 수정 커밋: `8eecbc8` — `fix(research): correlate shared daily portfolio returns`.
+- 기존 보고서의 **공통 per-bar returns 상관** 설명은 이 절과 갱신된 API 문서로 대체한다.
+  변경 범위는 상관 표본 추출/유한성 검사, 그 warning/API 정의, 회귀 테스트뿐이다.
+  controller의 계획/feature-matrix 변경은 건드리지 않았고 push/merge/다른 worktree/agent 실행은 없다.
+- 모든 component의 공통 timestamp를 먼저 찾는 기존 complete-component 규칙을 유지한다.
+  그 공통 집합에서 America/New_York 날짜별 마지막 timestamp를 선택하고 동일 시점 equity 사이의
+  daily returns를 계산한다. component별 서로 다른 마지막 시점을 독립 선택해 짝짓지 않는다.
+- 빠진 날짜는 채우지 않는다. `observations`는 실제 공통 daily returns 수이며, 최초 평가액을
+  원금에 대비한 별도 가상 수익률로 추가하지 않는다. 한 세션에 120분봉이 있어도 관측은 0개다.
+- 최소 2개 공통 daily returns와 양쪽 가변 표본이 있어야 Pearson 계수를 제공한다.
+  비유한 float returns/계수는 null과 reason으로 처리한다. 현금·equity 계산은 여전히 Decimal이고
+  통계 계산만 float다. API 문서에 수익률은 비율, 계수는 무단위라는 정의를 추가했다.
+- 전체 공통 timestamp portfolio curve/제외 timestamp 수, 불완전 component의 curve/correlation
+  비우기, synthetic-pattern warning은 그대로다. 지정된 deferred minor인 `fold.error`/`test.error`
+  동기화는 수정하지 않았다.
+
+### RED → GREEN 및 최종 검증
+
+1. 구현 전 `uv run pytest tests/research/test_daily_correlation.py -q`: **5 failed**.
+   - 한 세션 120 marks가 잘못 `observations=119`를 반환했다(기대 0/null).
+   - 4개 공통 NY 날짜/12 marks가 잘못 11 returns를 사용했다(기대 3).
+     intraday wiggle을 바꾸면 계수도 바뀌었다(기대 일간 계수 `11/38`).
+   - UTC 자정을 가로지르는 NY 날짜가 잘못 5 returns를 사용했다(기대 2).
+   - 비유한 float return에서 NaN Decimal validation failure가 발생했다(기대 null/reason).
+2. 구현 후 `uv run pytest tests/research -q`: **35 passed**.
+   last-common price, 서로 다른 component-only 마지막 시점 제외, 누락일 미삽입,
+   intraday wiggle 무시, NY 날짜, null/finite, 실제 single-session API warning까지 검증한다.
+3. 최종 전체 검증:
+
+```text
+uv run pytest                  202 passed in 2.59s
+uv run ruff check .            All checks passed!
+uv run ruff format --check .   117 files already formatted
+uv run mypy .                  Success: no issues found in 117 source files
+```
+
+결론: scoped Important gap 수정 완료. 기존 운영 제한과 deferred minor는 그대로이며 새 차단 사항은 없다.
