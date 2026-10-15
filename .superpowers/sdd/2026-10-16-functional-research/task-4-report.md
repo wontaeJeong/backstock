@@ -221,3 +221,64 @@ controller가 자신의 미커밋 문서 변경에 아래를 반영하면 된다
 
 이 round에 미해결로 남겨 둔 I1–I4/M1 기능 항목은 없다. 최종 독립 whole-branch review·원격 CI·PR/merge와
 기존 Task 3 minor triage는 여전히 controller 담당이다. 새 worktree/branch/subagent·push/merge는 수행하지 않았다.
+
+---
+
+## Scoped review 수정 2/5 — R1 / I2 잔여, 기준 `ea5ab26`
+
+**DONE** — 미완성 분기를 사이에 둔 다중 편집 손실을 수정했다.
+구현 커밋: **`37ee40a`** (`fix(web): preserve cross-branch edits while imported forms are incomplete`).
+이 절은 1회차의 I2 완료 판단 중 다중 분기 미완성 복구 경계를 보완한다.
+
+### 실제 RED → GREEN
+
+- 수정 전에 `apps/web/lib/strategy-form.test.ts`의 신규 **19개가 모두 실패**했다. 최초 재현은
+  fixed_notional `500.00000001`/손절 `3`을 import → 금액 비움 → 손절 `9`·요일 수정 → 금액
+  `600.00000001` 복구 후 `formError`는 없지만 실행 정의 손절은 `3`인 경우다.
+- 같은 버그를 production build+실제 API/engine에서 **390/1440 모두 실패**시켰다. 브라우저에서 입력한
+  `9` 대신 실제 simulation report의 `request.strategy.risk.stop_loss.value`가 `3`이었다.
+  UI 문구만 검사한 RED가 아니다.
+- `updateDraftSetting`은 이제 **현재 편집 분기가 유효하면 그 분기만 먼저 JSON에 반영**하고, 그 뒤
+  전체 sizing/risk 검증으로 실행 가능 여부를 판단한다. 다른 분기가 미완성이면 오류는 유지하지만
+  이미 유효한 다른 분기 편집을 버리지 않는다. 현재 분기 자체가 무효면 해당 분기의 이전 JSON은 유지하되
+  전체 실행·저장·실험은 차단한다. 유효하게 복구할 때 그 분기의 현재 필드 전체가 반영된다.
+- 전체 import를 template/폼에서 재생성하지 않았다. 미편집 entry/중첩 AST·order·다른 risk/session과
+  `12.000000000001` 등의 원래 Decimal 문자열을 그대로 보존한다. 기존 % 모드의 무효·미사용 ATR 기간
+  처리와 정확한 %↔비율 문자열 변환도 이전 회귀를 그대로 통과했다.
+
+### 신규 회귀 범위
+
+- unit 19개: sizing 미완성 중 손절·요일 수정, take-profit/trailing/최대 보유 기간/각 session clock 분기,
+  그리고 **손절/익절/추적 손절 미완성 × 네 가지 sizing** 12개 조합의 역순 편집·복구를 검사한다.
+  미완성 중 getter 차단, 복구 후 `buildStrategy`(save) / `buildRequest.strategy`(run·experiment) /
+  현재 JSON의 일치와 미편집 AST·다른 분기 보존을 확인한다.
+- `tests/e2e/task4-round2.spec.ts`의 단일 흐름을 390/1440에서 실행한다:
+  1. 금액 미완성 → 손절 `9`·요일 편집 → 실행 요청 자체 차단 → 금액 `600.00000001` 복구 → 실제 엔진
+     요청/응답 손절 `9`·수정 요일 확인.
+  2. 손절 미완성 → 금액 `700.00000001`·진입 `09:45` 편집 → 차단 → 손절 `8` 복구 → 실제 엔진의
+     금액/손절/session 일치 확인.
+  3. 같은 현재 정의로 실제 strategy save와 grid를 실행한다. GUI 필드·원본 JSON·POST body·정규화된
+     simulation request·저장 definition·experiment base가 일치하고 grid 실제 두 행 모두 succeeded다.
+     손익 계산을 테스트나 브라우저에서 복제하지 않는다.
+
+### 최종 검증
+
+| 명령 | 실제 결과 |
+| --- | --- |
+| `uv run ruff check .` / `uv run ruff format --check .` | 통과 / 133 files |
+| `uv run mypy .` | 133 source files, 통과 |
+| `uv run pytest` | **343 passed**, 18.63s |
+| `pnpm lint` / `pnpm typecheck` | 53 files, diagnostic 없음 / 통과 |
+| `pnpm test` | **6 files / 52 passed** = 이전 33 + 신규 19 |
+| `pnpm build` | production build 통과 |
+| `CI=1 pnpm exec playwright test` | **54 passed**, 약 1.4m = 이전 52 + 신규 viewport 2 |
+| `git diff --check` | 통과 |
+
+실제 Chromium 390/1440의 `ROUND2_LAYOUT`은 각각 `width=scrollWidth=390`, `1440`이다.
+`multi-branch-repaired.png`를 두 화면에서 읽었으며 실제 합성 엔진 결과·가격과 equity 구분·한계 표시를
+유지한다. 기존 분석 회귀에서도 SVG 실제 16px/bounds, 표 14px·25행·내부 스크롤과 오류 focus가 유지됐다.
+
+프로덕션 변경은 `apps/web/lib/strategy-form.ts`의 작은 분기 반영/검증 순서 변경뿐이다. controller의
+`docs/feature-matrix.md` 및 병행 변경으로 나타난 `docs/superpowers/plans/2026-10-16-functional-research.md`는
+수정·stage하지 않았다. 소유한 reference matrix에만 분기 보존 규칙을 덧붙였다. backend·paper·execution·
+기존 Minor는 건드리지 않았으며, 새 worktree/agent·push/merge는 없다.
