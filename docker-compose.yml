@@ -13,6 +13,17 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
 
+  migrate:
+    build:
+      context: .
+      dockerfile: infra/api.Dockerfile
+    command: ["/app/.venv/bin/alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/stocklab
+    depends_on:
+      db:
+        condition: service_healthy
+
   api:
     build:
       context: .
@@ -20,11 +31,19 @@ services:
     environment:
       APP_ENV: development
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/stocklab
+      DATA_STORAGE_PATH: /app/var/data
+    volumes:
+      - research-data:/app/var/data
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
   worker:
     build:
@@ -33,20 +52,26 @@ services:
     environment:
       APP_ENV: development
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/stocklab
+      DATA_STORAGE_PATH: /app/var/data
+    volumes:
+      - research-data:/app/var/data
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   web:
     build:
       context: .
       dockerfile: infra/web.Dockerfile
     environment:
+      API_INTERNAL_URL: http://api:8000
       NEXT_PUBLIC_API_URL: http://api:8000
     ports:
       - "${WEB_PORT:-3000}:3000"
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
 volumes:
   postgres-data:
+  research-data:
