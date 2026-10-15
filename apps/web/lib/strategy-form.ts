@@ -85,9 +85,8 @@ export function updateDraftSetting<K extends keyof Draft>(
   const session = ["entryStart", "entryEnd", "flattenAt", "weekdays"]
   if (![...sizing, ...loss, ...profit, ...trailing, ...session, "holdingBars"].includes(key))
     return next
+  let latestJson = draft.advancedJson
   try {
-    positionSizing(next)
-    riskSettings(next)
     const definition = obj(JSON.parse(draft.advancedJson))
     if (sizing.includes(key)) definition["position_sizing"] = positionSizing(next)
     else if (session.includes(key))
@@ -124,10 +123,16 @@ export function updateDraftSetting<K extends keyof Draft>(
       else risk["max_holding_bars"] = next.holdingBars ? Number(next.holdingBars) : null
       definition["risk"] = risk
     }
-    return { ...next, formError: undefined, advancedJson: JSON.stringify(definition, null, 2) }
+    // Commit this independently valid branch even while another branch is incomplete.
+    // The full-form gate still blocks execution until every current branch is valid.
+    latestJson = JSON.stringify(definition, null, 2)
+    positionSizing(next)
+    riskSettings(next)
+    return { ...next, formError: undefined, advancedJson: latestJson }
   } catch {
     return {
       ...next,
+      advancedJson: latestJson,
       formError: "수량·위험 폼의 숫자·기간을 완성하세요. 이전 JSON으로 대신 실행하지 않습니다.",
     }
   } // Preserve partial edits without silently executing the old JSON.
