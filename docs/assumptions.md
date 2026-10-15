@@ -125,3 +125,19 @@ Validation:
 - 연구 API는 64 KiB body·동시 2개 threadpool·실험 30초 cooperative 계산 예산을 사용한다.
   공급자 I/O는 별도 timeout이므로 HTTP wall time 30초 보장은 아니다.
 - 상세 wire 계약·경로 allowlist·분모·제한은 `docs/reference/research-features-api.md`에 기록한다.
+
+## 2026-10-16 수동 paper 연습
+
+- 실제 broker 연결 대신 별도 paper 계좌/승인/원장을 구현한다. paper 기능은 기본 활성화지만
+  feature-off가 가능하며 production broker 플래그는 paper 실행 방식을 바꾸지 못한다.
+- 수동 quote는 과거/시나리오 입력으로서 freshness를 검증하지 않는다. 최신 제출 mark로 평가하고
+  승인 가격은 후보의 고정 참조가다. 비용 기본값은 commission/sell-tax/slippage 1/0/5 bps다.
+- long-only 정수 수량, 계좌 초기 현금 1e9 이하, 주문 참조/실행 notional 1e6 이하를 적용한다.
+  보유 원가는 매수 비용을 포함한 이동평균이며 통화별 minor-unit 반올림/환전은 지원하지 않는다.
+- 요청 키는 계좌별 operation+target+정규화 payload에 바인딩한다. exact replay는 저장된 당시 응답이고
+  클라이언트는 POST 이후 반드시 현재 계좌를 다시 조회한다. 생성 요청은 자동 재시도하지 않는다.
+- 같은 계좌 flock과 한 원자적 계좌 JSON에 현금/체결/감사/요청 바인딩을 묶는다. 응답/감사 commit
+  사본은 먼저 write-once로 저장하고 해시 참조를 커밋한다. 교체 전 장애의 미참조 사본은 허용한다.
+  POSIX 로컬 filesystem용이고 NFS/분산 거래 저장소가 아니다. DB migration은 없다.
+- kill switch 중에도 안전한 취소/거절/mark/조회/내부 원장 대사를 유지한다. 대사는 외부 broker
+  비교가 아니다. 자세한 오류·한도·재시도·응답 계약은 같은 API reference의 Task 3 절에 고정한다.

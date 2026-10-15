@@ -1,6 +1,6 @@
 # 연구 기능 API 계약
 
-Task 1/2 backend 계약. `/openapi.json`에 모든 요청·응답 schema가 등록된다. 아래 타입은 JSON wire
+Task 1/2/3 backend 계약. `/openapi.json`에 모든 요청·응답 schema가 등록된다. 아래 타입은 JSON wire
 타입이다. 금액·비율·수익률·상관계수는 **Decimal 문자열**, 수익률은 백분율이 아닌 비율이다.
 날짜는 offset 있는 ISO 8601이다. `null`은 0이 아니며 `reason`/`error`를 함께 표시한다.
 실제 체결·평가·snapshot을 사용하며 실주문은 없다.
@@ -488,3 +488,176 @@ remote_range_days={1m:7,5m:60}, tick_timestamp_label=event, intraday_timestamp_l
   후속 execution 필드의 기본값 때문에 기존 실행의 hash를 재계산해 거절하지 않는다.
 - filesystem immutable artifact 모델을 유지하므로 DB schema migration은 없다. 공개 서비스의
   인증/사용자별 quota/대용량 검색 인덱스·실제 시세 라이선스 검증은 별도 운영 과제다.
+
+## 승인 기반 수동 paper API (Task 3)
+
+**실제 증권 계좌·호가·체결이 아니다.** 사용자가 입력한 수동 과거/시나리오 가격을 사용하는
+오프라인 연습이다. 승인 시각이 과거 quote 시각과 달라도 그 참조가로 시뮬레이션한다. 가격의 시점별
+유효성·거래소 calendar·유동성·부분 체결·호가 queue를 검증하지 않는다. 소급 가격으로 투자 성과나
+실제 거래 가능성을 주장하면 안 된다. credential/auth/account-number 입력 필드는 없다.
+
+`PAPER_TRADING_ENABLED=false`이면 paper API는 503 `PAPER_DISABLED`다(기본 true: 로컬 연습만 활성).
+`BROKER_MODE`/`BROKER_PRODUCTION_ENABLED`의 값은 이 서비스를 실주문으로 전환하지 않는다.
+실 broker SDK/네트워크 경로가 없다. 공개 서비스 인증/권한/사용자 격리는 아직 없으므로 로컬 연구용이다.
+
+### 경로와 요청
+
+| 메서드·경로 (`P=/paper/accounts`) | JSON 요청 | 응답 |
+| --- | --- | --- |
+| `POST P` | `{name,initial_cash,costs?}` | `201 PaperAccount` |
+| `GET P?page=1&page_size=25` | 없음 | `200 AccountPage` |
+| `GET P/{account_id}` | 없음 | `200 PaperAccount` |
+| `POST P/{account_id}/proposals` | `{symbol,side,quantity,reference_price,quote_at,idempotency_key}` | `200 PaperAccount` |
+| `POST P/{account_id}/orders/{order_id}/approve` | `{idempotency_key}` | `200 PaperAccount` |
+| `POST P/{account_id}/orders/{order_id}/reject` | `{idempotency_key}` | `200 PaperAccount` |
+| `POST P/{account_id}/orders/{order_id}/cancel` | `{idempotency_key}` | `200 PaperAccount` |
+| `POST P/{account_id}/quotes` | `{symbol,price,quote_at,idempotency_key}` | `200 PaperAccount` |
+| `POST P/{account_id}/kill-switch` | `{enabled,idempotency_key?}` | `200 PaperAccount` |
+| `GET P/{account_id}/reconciliation` | 없음 | `200 Reconciliation` |
+
+- `name`: 제어문자 없는 1..80자; 임의 credential을 넣지 않는다. `initial_cash`: (0,1e9], 소수 6자리 이하.
+- `symbol`: `[A-Z][A-Z0-9.:-]{0,31}`; 수동 symbol 식별자이고 거래소 상장 여부를 조회하지 않는다.
+- `side`: `buy|sell`; `quantity`: 정수 1..1,000,000 (fraction/bool/float 불가).
+- `reference_price`/`price`: 유한 양수 ≤1,000,000, 소수 6자리 이하, 최대 13자리 Decimal.
+  후보 참조가×수량과 승인 실행가×수량 모두 ≤1,000,000. 현금/수량은 승인 시 다시 검사한다.
+- `quote_at`: 명시적 UTC offset 있는 ISO datetime, UTC로 정규화. 서버 취득/현재 시세 시각이 아니라
+  사용자 선언 시나리오 시각이다. 미래 여부/시장 freshness를 검증하지 않는다.
+- 비용 객체 `costs`의 선택 필드는 `commission_bps`(기본 "1"), `sell_tax_bps`("0"),
+  `slippage_bps`("5"). 각각 0..100 bps, 소수 3자리 이하. 계좌 생성 시 고정되고 변경 API는 없다.
+- Decimal 요청은 JSON 숫자/문자열 모두 허용하나 정밀도 보존을 위해 문자열을 권장한다.
+  Decimal 응답은 **항상 문자열**이다(0, trailing zero, 지수 표기 허용; 문자열 표시가 아닌 숫자 의미로 비교).
+- `idempotency_key`: 1..128자 `[A-Za-z0-9_.:-]+`, 계좌별 namespace. 동일 계좌에서 operation+
+  account/order target+정규화 payload에 바인딩하며 다른 action/order/가격/수량 재사용은 409다.
+  소수 trailing zero와 같은 순간의 다른 offset 표기는 동일 payload로 정규화한다. 키 원문은 응답/
+  로그/파일에 남기지 않고 SHA256만 보존한다. body/header 전체도 로그에 넣지 않는다.
+- create는 키를 받지 않으므로 자동 재시도하면 별도 연습 계좌가 생긴다. kill-switch의 키는 선택이며
+  생략 시 매 호출이 현재 enabled를 설정하고 감사 이벤트를 남긴다(자금 이동 없음).
+- POST body는 64 KiB streaming 제한, thread 작업은 프로세스별 동시 2개다. 목록 page≥1,
+  page≤1,000,000, page_size 1..100이며 account_id 사전순이다. 빈 목록은
+  `{"items":[],"total":0,"page":1,"page_size":25}`다. 계좌별 1,000개 바인딩에 도달하면 새 후보/
+  승인/mark는 `CAPACITY_LIMIT`; 기존 키 replay와 안전한 취소/거절/kill/조회/대사는 유지한다.
+
+### 정확한 응답 타입
+
+아래 모든 필드는 응답에 존재한다. `D=string`은 Decimal, `T=string`은 aware ISO datetime이다.
+`paper_<hex32>`/`paper_order_<hex32>`/`paper_fill_<hex32>`는 생성된 연습 ID다.
+
+```ts
+type D = string;
+type T = string;
+type PaperSide = "buy" | "sell";
+type PaperOrderState = "pending_approval" | "filled" | "rejected" | "cancelled" | "risk_rejected";
+type PaperCode = "INSUFFICIENT_CASH" | "INSUFFICIENT_POSITION" | "NOTIONAL_LIMIT" |
+  "KILL_SWITCH" | "INVALID_TRANSITION" | "NOT_FOUND" | "IDEMPOTENCY_CONFLICT" |
+  "CAPACITY_LIMIT" | "PAPER_DISABLED" | "PAPER_STORAGE_ERROR" | "PAPER_INTEGRITY_ERROR";
+type PaperCosts = {commission_bps:D; sell_tax_bps:D; slippage_bps:D};
+type PaperQuote = {symbol:string; price:D; quote_at:T; source:"manual_historical_paper"};
+type PaperPosition = {
+  symbol:string; quantity:number; cost_basis:D; mark:PaperQuote;
+  average_cost:D; market_value:D; unrealized_pnl:D;
+};
+type PaperOrder = {
+  order_id:string; symbol:string; side:PaperSide; quantity:number; reference_price:D;
+  quote_at:T; created_at:T; state:PaperOrderState; reason:PaperCode|null;
+};
+type PaperFill = {
+  fill_id:string; order_id:string; symbol:string; side:PaperSide; quantity:number;
+  reference_price:D; execution_price:D; commission:D; tax:D; slippage:D;
+  quote_at:T; approved_at:T; source:"manual_historical_paper";
+};
+type PaperAudit = {
+  sequence:number; at:T; order_id:string|null; code:PaperCode|null;
+  kind:"account_created" | "proposal_created" | "approved_paper_fill" | "rejected" |
+    "cancelled" | "risk_rejected" | "quote_marked" | "kill_switch" | "request_denied";
+};
+type PaperAccount = {
+  account_id:string; name:string; initial_cash:D; cash:D; costs:PaperCosts;
+  positions:PaperPosition[]; orders:PaperOrder[]; fills:PaperFill[]; quotes:PaperQuote[];
+  audit:PaperAudit[]; kill_switch:boolean; realized_pnl:D; mode:"paper";
+  equity:D; commission:D; tax:D; slippage:D;
+};
+type AccountPage = {items:PaperAccount[]; total:number; page:number; page_size:number};
+type Reconciliation = {
+  account_id:string; scope:"internal_paper_ledger"; consistent:boolean;
+  expected_cash:D; actual_cash:D; expected_positions:Record<string,number>;
+  actual_positions:Record<string,number>; issues:string[];
+};
+```
+
+`Reconciliation.issues`는 `invalid_fill_ledger|cash_mismatch|position_mismatch|
+cost_basis_or_realized_mismatch|order_fill_mismatch|approval_audit_mismatch` 중 실제 차이만 나열한다.
+비어 있으면 consistent=true. 조회는 파일/감사 이력을 변경하지 않는다. 실제 broker 비교가 아니다.
+
+### 상태·평가·비용·재시도
+
+- 후보는 `pending_approval`이며 돈을 예약/차감하거나 fill을 생성하지 않는다.
+  approve 성공만 risk 검사 후 `filled`; 매수 부족/매도 보유 부족/실행금액 초과면 409와 함께
+  `risk_rejected`가 **저장**된다. reject/cancel은 pending만 `rejected`/`cancelled`로 종료하며 돈은 같다.
+  종료된 주문을 새 키로 다시 승인/취소/거절하면 `INVALID_TRANSITION`이다.
+- kill switch는 새 후보/승인을 막는다(`KILL_SWITCH`, 주문은 pending 유지). 안전한 reject/cancel,
+  수동 mark, 조회/대사, kill 해제는 가능하다. 차단 결과도 키와 감사로 저장하므로 해제 후 의도적으로
+  다시 승인하려면 **새 키**를 쓴다. 이는 자동 재시도에 의해 차단된 주문이 나중에 체결되는 것을 막는다.
+- 실행가=참조가×(1±slippage_bps/10000), buy는 +/sell은 −. commission=실행금액×commission_bps/10000,
+  tax=sell 실행금액×sell_tax_bps/10000 (buy=0). buy 현금은 실행금액+commission 감소,
+  sell 현금은 실행금액−commission−tax 증가. slippage는 실행가에 이미 포함되어 다시 빼지 않는다.
+- 매수 비용은 원가에 포함하며 매도는 이동평균 원가를 수량 비례 제거하고 전량 매도는 남은 원가 전부를
+  제거한다. realized_pnl은 매도 순대금−제거 원가다. equity=cash+Σmarket_value,
+  unrealized_pnl=market_value−cost_basis. Decimal 계산이며 통화 환산/통화별 minor-unit 반올림은 없다.
+- 최초 포지션 mark는 해당 fill의 참조가이고 별도 수동 mark가 있으면 그것을 쓴다. `quotes` 배열은
+  명시적으로 제출한 최신 mark만 담는다. `positions[].mark`에 실제 평가 출처/시각을 표시한다.
+  같은 symbol에 마지막 제출한 mark가 이전 timestamp여도 의도적 시나리오 수정으로 적용된다.
+  mark는 cash/fill/대기 order의 고정 참조가를 바꾸지 않는다.
+- **정확한 retry는 저장된 당시 PaperAccount 응답을 재생**한다(나중의 계좌 상태가 아님).
+  모든 POST 성공/실패 후 UI는 반드시 GET 계좌를 다시 호출해 현재 cash/kill/주문/감사를 갱신한다.
+  replay는 새 fill/감사를 만들지 않으며 프로세스 재시작 후에도 유지한다. 오류는 같은 code/status를
+  재생하되 HTTP request_id는 현재 요청의 값이다. 네트워크/503 이후 같은 키로 재시도한다.
+  같은 계좌 lock과 상태·감사·키 바인딩의 원자 교체로 교체 전/후 장애 모두 중복 fill을 방지한다.
+- 변경 불가능한 content-addressed commit 사본과 현재 계좌 JSON을 비교해 변조/손상을 거부한다.
+  교체 전 실패의 미참조 commit 사본은 존재할 수 있으나 현재 원장에는 포함되지 않는다.
+  로컬 POSIX filesystem용이다. NFS/분산 lock/장기 저장 압축/외부 감사 서명은 지원하지 않는다.
+
+### 오류
+
+공통 `{code,message,details,request_id}` envelope다. paper 규칙 오류의 message는 고정된
+`"Paper operation unavailable or rejected"`, details는 `{}`이며 요청 원문을 노출하지 않는다.
+404 `NOT_FOUND`(계좌/주문), 503 `PAPER_DISABLED|PAPER_STORAGE_ERROR`, 409는 나머지 PaperCode다.
+422 `VALIDATION_ERROR`(범위/타입/추가 필드/action enum), 413 `HTTP_ERROR`(body 초과)도 공통 envelope다.
+잘못된 ID나 경로를 filesystem 경로로 사용하지 않는다. 오류 응답 예시:
+
+```json
+{"code":"INSUFFICIENT_CASH","message":"Paper operation unavailable or rejected","details":{},"request_id":"current-request-id"}
+```
+
+### 실행 가능 예시 (API를 localhost:8000에서 실행한 뒤)
+
+Python 표준 라이브러리만 사용한다. 초기 1000, 2주×100, 기본 비용으로 승인 후 현금은
+799.87999, 실행가는 100.05, 수수료는 0.02001이다. 이후 120 mark는 equity만 1039.87999로 바꾼다.
+
+```bash
+python3 - <<'PY'
+import json
+import urllib.request
+
+root = "http://localhost:8000/paper/accounts"
+def call(path="", body=None):
+    request = urllib.request.Request(root + path,
+        data=None if body is None else json.dumps(body).encode(),
+        headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(request) as response:
+        return json.load(response)
+
+a = call(body={"name":"오프라인 연습", "initial_cash":"1000"})
+p = "/" + a["account_id"]
+a = call(p + "/proposals", {"symbol":"AAPL", "side":"buy", "quantity":2,
+    "reference_price":"100", "quote_at":"2024-01-02T15:00:00Z", "idempotency_key":"proposal-1"})
+o = a["orders"][-1]["order_id"]
+call(p + "/orders/" + o + "/approve", {"idempotency_key":"approve-1"})
+print(call(p)["cash"])  # 799.87999; 항상 현재 계좌 refetch
+call(p + "/quotes", {"symbol":"AAPL", "price":"120", "quote_at":"2024-01-03T15:00:00Z",
+    "idempotency_key":"mark-1"})
+print(call(p)["equity"])  # 1039.87999
+call(p + "/kill-switch", {"enabled":True, "idempotency_key":"kill-on-1"})
+print(call(p + "/reconciliation"))  # consistent true, internal_paper_ledger
+print(call()["total"])
+PY
+```

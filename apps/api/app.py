@@ -7,6 +7,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from apps.api.datasets import build_dataset_router
 from apps.api.middleware import RequestContextMiddleware, request_id_context
+from apps.api.paper import build_paper_router
 from apps.api.research import build_research_router
 from apps.api.schemas import ErrorResponse, HealthResponse
 from apps.api.simulations import build_simulation_router, source_revision
@@ -16,7 +17,10 @@ from packages.application.datasets import (
     DatasetSnapshotService,
     SnapshotNotFoundError,
 )
+from packages.application.paper import PaperService
 from packages.application.simulations import SimulationService
+from packages.broker.paper_store import FilePaperStore
+from packages.domain.paper import PaperRuleError
 from packages.market_data.snapshots import FileSnapshotStore
 from packages.shared.logging import configure_logging
 from packages.shared.settings import Settings, get_settings
@@ -29,6 +33,20 @@ async def live() -> HealthResponse:
 
 async def api_exception_handler(_: Request, exc: Exception) -> JSONResponse:
     match exc:
+        case PaperRuleError(code=code):
+            status_code = (
+                404
+                if code == "NOT_FOUND"
+                else 503
+                if code in {"PAPER_DISABLED", "PAPER_STORAGE_ERROR"}
+                else 409
+            )
+            error = ErrorResponse(
+                code=code,
+                message="Paper operation unavailable or rejected",
+                request_id=request_id_context.get(),
+            )
+            return JSONResponse(status_code=status_code, content=error.model_dump(mode="json"))
         case StarletteHTTPException(status_code=status_code):
             error = ErrorResponse(
                 code="NOT_FOUND" if status_code == status.HTTP_404_NOT_FOUND else "HTTP_ERROR",
@@ -125,6 +143,15 @@ def create_app(
         build_research_router(resolved_settings.data_storage_path, simulation_service)
     )
     app.include_router(build_simulation_router(simulation_service))
+    app.include_router(
+        build_paper_router(
+            PaperService(
+                FilePaperStore(resolved_settings.data_storage_path),
+                enabled=resolved_settings.paper_trading_enabled,
+            )
+        )
+    )
+    app.add_exception_handler(PaperRuleError, api_exception_handler)
     app.add_exception_handler(StarletteHTTPException, api_exception_handler)
     app.add_exception_handler(RequestValidationError, api_exception_handler)
     app.add_exception_handler(DatasetInvalidError, api_exception_handler)
