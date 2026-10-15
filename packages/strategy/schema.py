@@ -23,7 +23,7 @@ class _FrozenModel(BaseModel):
 
 class ConstantValue(_FrozenModel):
     type: Literal["constant"] = "constant"
-    value: Decimal
+    value: Decimal = Field(max_digits=28, decimal_places=12)
 
 
 class BarField(_FrozenModel):
@@ -139,7 +139,7 @@ class ExitRule(_FrozenModel):
 
 class StopLossRule(_FrozenModel):
     mode: Literal["percent", "atr_multiple"]
-    value: Decimal = Field(gt=0)
+    value: Decimal = Field(gt=0, le=1_000_000, max_digits=24, decimal_places=12)
     atr_period: int = Field(default=14, gt=0)
 
     @model_validator(mode="after")
@@ -151,13 +151,13 @@ class StopLossRule(_FrozenModel):
 
 class TakeProfitRule(_FrozenModel):
     mode: Literal["percent", "atr_multiple"]
-    value: Decimal = Field(gt=0)
+    value: Decimal = Field(gt=0, le=1_000_000, max_digits=24, decimal_places=12)
     atr_period: int = Field(default=14, gt=0)
 
 
 class TrailingStopRule(_FrozenModel):
     mode: Literal["percent", "atr_multiple"]
-    value: Decimal = Field(gt=0)
+    value: Decimal = Field(gt=0, le=1_000_000, max_digits=24, decimal_places=12)
     atr_period: int = Field(default=14, gt=0)
 
     @model_validator(mode="after")
@@ -176,12 +176,12 @@ class RiskRules(_FrozenModel):
 
 class FixedQuantitySizing(_FrozenModel):
     method: Literal["fixed_quantity"] = "fixed_quantity"
-    quantity: int = Field(gt=0)
+    quantity: int = Field(gt=0, le=1_000_000_000)
 
 
 class FixedNotionalSizing(_FrozenModel):
     method: Literal["fixed_notional"] = "fixed_notional"
-    notional: Decimal = Field(gt=0)
+    notional: Decimal = Field(gt=0, le=1_000_000_000_000, max_digits=24, decimal_places=8)
 
 
 class PercentEquitySizing(_FrozenModel):
@@ -204,7 +204,7 @@ PositionSizing = Annotated[
 
 class OrderRule(_FrozenModel):
     order_type: Literal["market", "limit"] = "market"
-    limit_offset_bps: Decimal | None = Field(default=None, ge=0)
+    limit_offset_bps: Decimal | None = Field(default=None, ge=0, lt=10_000)
     time_in_force: Literal["day", "gtc"] = "day"
 
     @model_validator(mode="after")

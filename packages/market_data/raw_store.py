@@ -9,6 +9,8 @@ from typing import ClassVar, Final
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from packages.market_data.artifacts import publish_immutable
+
 UNAWARE_CLOCK: Final = "raw capture clock must return a timezone-aware datetime"
 UNSAFE_PROVIDER: Final = "provider name must contain a safe path character"
 ARTIFACT_COLLISION: Final = "immutable raw artifact collision"
@@ -216,12 +218,8 @@ def _safe_provider(provider: str) -> str:
 
 
 def _write_once(path: Path, content: bytes) -> None:
-    try:
-        with path.open("xb") as stream:
-            _ = stream.write(content)
-    except FileExistsError:
-        if path.read_bytes() != content:
-            raise RuntimeError(ARTIFACT_COLLISION) from None
+    if not publish_immutable(path, content):
+        raise RuntimeError(ARTIFACT_COLLISION)
 
 
 def freeze_request(request: RequestInput) -> RequestOptions:

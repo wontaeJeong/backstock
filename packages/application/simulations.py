@@ -1,8 +1,10 @@
 import hashlib
 import json
 import re
+from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
+from time import monotonic
 from zoneinfo import ZoneInfo
 
 from packages.application.research_data import acquire_research_data
@@ -16,7 +18,7 @@ from packages.backtest.analytics import maximum_drawdown
 from packages.backtest.engine import BacktestEngine
 from packages.backtest.models import BacktestConfig, BacktestInput, CostConfig, SnapshotReference
 from packages.domain.market_data import Bar
-from packages.market_data.snapshots import FileSnapshotStore, _write_once
+from packages.market_data.snapshots import FileSnapshotStore, SnapshotManifest, _write_once
 from packages.strategy.evaluator import DslStrategyEvaluator
 from packages.strategy.validation import create_strategy_version
 
@@ -25,6 +27,18 @@ MIN_BARS = 2
 SATURDAY = 5
 SESSION_OPEN_MINUTES = 570
 SESSION_CLOSE_MINUTES = 960
+MAX_RUN_SECONDS = 15
+
+
+class RunDeadline:
+    def __init__(self, clock: Callable[[], float] = monotonic) -> None:
+        """Bound engine work cooperatively between bars, not external I/O."""
+        self._clock = clock
+        self._deadline = clock() + MAX_RUN_SECONDS
+
+    def should_cancel(self, processed_events: int) -> bool:
+        del processed_events
+        return self._clock() >= self._deadline
 
 
 class SimulationService:
@@ -43,12 +57,7 @@ class SimulationService:
             msg = "snapshot을 찾을 수 없습니다."
             raise ValueError(msg)
         manifest, bars = loaded
-        if manifest.instrument_id != request.strategy.universe[0]:
-            msg = "snapshot 종목과 전략 종목이 다릅니다."
-            raise ValueError(msg)
-        if manifest.interval != request.strategy.timeframe:
-            msg = "snapshot 주기와 전략 주기가 다릅니다."
-            raise ValueError(msg)
+        _validate_manifest(manifest, request)
         if len(bars) < MIN_BARS:
             msg = "시뮬레이션에는 최소 2개 bar가 필요합니다."
             raise ValueError(msg)
@@ -78,6 +87,7 @@ class SimulationService:
                 code_revision=self._revision,
             ),
             DslStrategyEvaluator(request.strategy, version.version_id),
+            cancellation=RunDeadline(),
         )
         warnings = [
             "과거 수익률은 미래 수익을 보장하지 않습니다. 실주문 기능은 없습니다.",
@@ -154,6 +164,21 @@ def _report_hash(report: SimulationReport) -> str:
         report.model_dump(mode="json", exclude={"run_id"}), sort_keys=True, separators=(",", ":")
     ).encode()
     return hashlib.sha256(payload).hexdigest()
+
+
+def _validate_manifest(manifest: SnapshotManifest, request: SimulationRequest) -> None:
+    if manifest.currency != "USD" or manifest.timezone != "America/New_York":
+        message = (
+            "연구 MVP는 USD·America/New_York metadata가 있는 snapshot만 지원합니다. "
+            "다시 업로드하세요."
+        )
+        raise ValueError(message)
+    if manifest.instrument_id != request.strategy.universe[0]:
+        message = "snapshot 종목과 전략 종목이 다릅니다."
+        raise ValueError(message)
+    if manifest.interval != request.strategy.timeframe:
+        message = "snapshot 주기와 전략 주기가 다릅니다."
+        raise ValueError(message)
 
 
 def _validate_intraday(bars: tuple[Bar, ...], interval: str) -> None:

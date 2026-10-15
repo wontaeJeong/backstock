@@ -1,3 +1,5 @@
+from tempfile import TemporaryFile
+
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -22,10 +24,6 @@ from packages.strategy.validation import StrategyValidationError
 
 async def live() -> HealthResponse:
     return HealthResponse(status="live")
-
-
-async def ready() -> HealthResponse:
-    return HealthResponse(status="ready")
 
 
 async def api_exception_handler(_: Request, exc: Exception) -> JSONResponse:
@@ -99,8 +97,21 @@ def create_app(
         version="0.1.0",
     )
     app.add_middleware(RequestContextMiddleware)
+
+    def ready() -> HealthResponse | JSONResponse:
+        try:
+            resolved_settings.data_storage_path.mkdir(parents=True, exist_ok=True)
+            with TemporaryFile(dir=resolved_settings.data_storage_path) as probe:
+                _ = probe.write(b"ready")
+                probe.flush()
+        except OSError:
+            return JSONResponse({"status": "unavailable"}, status_code=503)
+        return HealthResponse(status="ready")
+
     app.add_api_route("/health/live", live, methods=["GET"], tags=["health"])
-    app.add_api_route("/health/ready", ready, methods=["GET"], tags=["health"])
+    app.add_api_route(
+        "/health/ready", ready, methods=["GET"], tags=["health"], response_model=HealthResponse
+    )
     resolved_dataset_service = dataset_service or DatasetSnapshotService(
         FileSnapshotStore(resolved_settings.data_storage_path / "published")
     )

@@ -54,3 +54,37 @@ def test_intraday_five_minute_demo(tmp_path: Path) -> None:
     )
     assert response.status_code == 201, response.text
     assert response.json()["manifest"]["interval"] == "5m"
+
+
+def test_simulation_rejects_non_usd_snapshot(tmp_path: Path) -> None:
+    client = TestClient(create_app(Settings(data_storage_path=tmp_path)))
+    payload = (Path(__file__).parents[1] / "fixtures/market_data/local_bars.csv").read_bytes()
+    upload = client.post(
+        "/datasets",
+        params={
+            "instrument_id": "NASDAQ:AAPL",
+            "symbol": "AAPL",
+            "exchange": "NASDAQ",
+            "currency": "KRW",
+            "timezone": "America/New_York",
+            "start": "2024-01-01T00:00:00Z",
+            "end": "2024-01-06T00:00:00Z",
+            "price_adjustment": "raw",
+            "volume_adjustment": "raw",
+        },
+        headers={"X-Filename": "bars.csv", "Content-Type": "text/csv"},
+        content=payload,
+    )
+    assert upload.status_code == 201
+    response = client.post(
+        "/simulations",
+        json={
+            "source": "snapshot",
+            "symbol": "AAPL",
+            "snapshot_id": upload.json()["snapshot_id"],
+            "strategy": definition().model_dump(mode="json"),
+            "initial_cash": "1000",
+        },
+    )
+    assert response.status_code == 422
+    assert "USD" in response.json()["message"]

@@ -3,8 +3,8 @@ import { NextResponse } from "next/server"
 import { ZodError, z } from "zod"
 
 const healthResponseSchema = z.object({ status: z.literal("ready") })
-const { NEXT_PUBLIC_API_URL: configuredApiUrl } = process.env
-const apiUrl = configuredApiUrl ?? "http://localhost:8000"
+const { API_INTERNAL_URL: internalApiUrl, NEXT_PUBLIC_API_URL: configuredApiUrl } = process.env
+const apiUrl = internalApiUrl ?? configuredApiUrl ?? "http://127.0.0.1:8000"
 
 export async function GET() {
   try {

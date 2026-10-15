@@ -3,6 +3,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from packages.application.simulations import (
     SimulationRequest,
@@ -167,4 +168,19 @@ def test_strategy_expression_size_is_bounded() -> None:
         "condition": {"op": "all", "conditions": [{"op": "all", "conditions": [leaf] * 8}] * 8}
     }
     with pytest.raises(ValueError, match="node"):
+        StrategyDefinition.model_validate(strategy)
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"position_sizing": {"method": "fixed_quantity", "quantity": 10**100}},
+        {"position_sizing": {"method": "fixed_notional", "notional": "1e999999"}},
+        {"order": {"order_type": "limit", "limit_offset_bps": "10000"}},
+    ],
+)
+def test_unbounded_numeric_strategy_is_rejected(override: dict[str, object]) -> None:
+    strategy = definition().model_dump(mode="json")
+    strategy.update(override)
+    with pytest.raises(ValidationError):
         StrategyDefinition.model_validate(strategy)
