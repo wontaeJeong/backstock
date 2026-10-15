@@ -6,11 +6,14 @@ from typing import Final, override
 from zoneinfo import ZoneInfo
 
 from packages.backtest.models import (
+    CancelIntent,
     OrderIntent,
+    OrderState,
     OrderType,
     PortfolioSnapshot,
     Position,
     Side,
+    StrategyDecision,
     TimeInForce,
 )
 from packages.backtest.ports import EvaluationContext, StrategyEvaluator
@@ -89,7 +92,7 @@ class DslStrategyEvaluator(StrategyEvaluator):
         self._runtime: dict[str, _PositionRuntime] = {}
 
     @override
-    def evaluate(self, context: EvaluationContext) -> tuple[OrderIntent, ...]:
+    def evaluate(self, context: EvaluationContext) -> tuple[StrategyDecision, ...]:
         instrument_id = context.current_bar.instrument_id
         if instrument_id not in self._definition.universe:
             return ()
@@ -97,9 +100,54 @@ class DslStrategyEvaluator(StrategyEvaluator):
         position = _find_position(context.portfolio, instrument_id)
         runtime = self._sync_position(context, position)
         state = _MarketState(portfolio=context.portfolio, position=position, runtime=runtime)
+        flatten = self._evaluate_flatten(context, position)
+        if flatten is not None:
+            return flatten
         if position is None or position.quantity == 0:
             return self._evaluate_entry(context, history, state)
         return self._evaluate_exit(context, history, position, state)
+
+    def _evaluate_flatten(
+        self, context: EvaluationContext, position: Position | None
+    ) -> tuple[StrategyDecision, ...] | None:
+        session = self._definition.session
+        clock = context.current_bar.timestamp.astimezone(ZoneInfo("America/New_York")).strftime(
+            "%H:%M"
+        )
+        if session is None or session.flatten_at is None or clock < session.flatten_at:
+            return None
+        pending = tuple(
+            order
+            for order in context.pending_orders
+            if order.state is OrderState.ACCEPTED
+            and order.intent.instrument_id == context.current_bar.instrument_id
+        )
+        quantity = position.quantity if position is not None else 0
+        retained = next(
+            (
+                order
+                for order in pending
+                if order.intent.rule_path == "session/flatten"
+                and order.intent.order_type is OrderType.MARKET
+                and order.intent.side is Side.SELL
+                and order.remaining_quantity == quantity
+                and quantity > 0
+            ),
+            None,
+        )
+        cancellations: tuple[StrategyDecision, ...] = tuple(
+            CancelIntent(
+                order_id=order.order_id,
+                submitted_at=context.current_bar.timestamp,
+                reason="session/flatten cancels pending entry/exit before market replacement",
+            )
+            for order in pending
+            if order is not retained
+        )
+        if quantity == 0 or retained is not None:
+            return cancellations
+        trace = _Trace(self._version_id, "session/flatten", "close-based session flatten signal")
+        return (*cancellations, _build_order(context, Side.SELL, quantity, OrderRule(), trace))
 
     def _sync_position(
         self, context: EvaluationContext, position: Position | None
@@ -167,15 +215,6 @@ class DslStrategyEvaluator(StrategyEvaluator):
         position: Position,
         state: _MarketState,
     ) -> tuple[OrderIntent, ...]:
-        session = self._definition.session
-        clock = context.current_bar.timestamp.astimezone(ZoneInfo("America/New_York")).strftime(
-            "%H:%M"
-        )
-        if session is not None and session.flatten_at is not None and clock >= session.flatten_at:
-            trace = _Trace(
-                self._version_id, "session/flatten", "close-based session flatten signal"
-            )
-            return (_build_order(context, Side.SELL, position.quantity, OrderRule(), trace),)
         if state.runtime is not None:
             risk_reason = _risk_triggered(self._definition.risk, history, state.runtime)
             if risk_reason is not None:

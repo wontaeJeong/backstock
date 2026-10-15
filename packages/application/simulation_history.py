@@ -17,5 +17,6 @@ class HistoryEvaluator:
                 current_bar=context.current_bar,
                 history=self._history + context.history,
                 portfolio=context.portfolio,
+                pending_orders=context.pending_orders,
             )
         )

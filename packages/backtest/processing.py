@@ -68,26 +68,30 @@ def execute_orders(state: EngineState, bar: Bar, config: BacktestConfig) -> None
             )
         )
         match decision:
-            case FilledExecution(fill=fill):
+            case FilledExecution(fill=fill, triggered_at=triggered_at):
                 if order.intent.stop_price is not None and order.triggered_at is None:
-                    order = order.model_copy(update={"triggered_at": fill.timestamp})
+                    trigger_time = triggered_at or fill.timestamp
+                    order = order.model_copy(update={"triggered_at": trigger_time})
                     state.orders[index] = order
                     state.record(
-                        fill.timestamp,
+                        trigger_time,
                         EventKind.ORDER_TRIGGERED,
                         "stop triggered",
                         EventDetails(order_id=order.order_id, instrument_id=bar.instrument_id),
                     )
                 _apply_execution(state, index, order, fill)
-            case PendingExecution(reason=reason, triggered=triggered) if reason not in {
+            case PendingExecution(
+                reason=reason, triggered=triggered, triggered_at=triggered_at
+            ) if reason not in {
                 "not_yet_eligible",
                 "different_instrument",
             }:
                 if triggered and order.triggered_at is None:
-                    order = order.model_copy(update={"triggered_at": bar.timestamp})
+                    trigger_time = triggered_at or bar.timestamp
+                    order = order.model_copy(update={"triggered_at": trigger_time})
                     state.orders[index] = order
                     state.record(
-                        bar.timestamp,
+                        trigger_time,
                         EventKind.ORDER_TRIGGERED,
                         reason,
                         EventDetails(order_id=order.order_id, instrument_id=bar.instrument_id),

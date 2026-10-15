@@ -338,6 +338,9 @@ type TriggerPrices = {
   intrabar trigger라면 high/low 순서를 알 수 없어 **그 bar는 미체결**로 둔다. `order_triggered`
   event 사유 `stop_limit_intrabar_ambiguous`와 triggered_at을 남기고 이후 bar/event의 limit으로만
   평가한다. 거래량 상한으로 미체결인 stop도 발동 상태를 유지한다. pending 주문의 중복은 거절한다.
+- gap trigger는 체결 여부와 무관하게 알려진 **bar open** 시각을 `triggered_at`/order_triggered에
+  기록한다. cap 또는 limit-bound로 대기해도 close로 미루지 않는다. intrabar trigger만 보수적으로
+  close에 기록한다. 내부 FilledExecution/PendingExecution도 optional `triggered_at`을 전달한다.
 - DAY 분봉/tick은 뉴욕 날짜가 바뀌기 전에 만료하고, 일봉 DAY는 다음 eligible bar에서 미체결이면
   만료한다. GTC는 이후 데이터까지 유지한다. 종료 시 기본 만료이며 보유를 임의 강제청산하지 않는다.
   기존 risk.stop_loss/take_profit/trailing_stop은 여전히 close 기반 조건이다.
@@ -391,6 +394,25 @@ clock은 09:30..16:00 뉴욕 시간이고 start<end, weekdays는 1..5개다. wee
 마지막 close에 신호만 생기거나 지연/거래량 상한으로 미체결일 수 있고 warnings와 실제 expired order/
 남은 포지션을 확인해야 한다. 일봉 date label은 시계가 아니므로 entry_start/end/flatten_at을 거부한다.
 일봉 weekday-only controls는 허용한다. session=null이면 기존 필터 없는 행동을 유지한다.
+
+flatten 우선순위는 다음과 같다. 엔진은 기존 주문 실행 후 close/event 평가기에 immutable
+`EvaluationContext.pending_orders: tuple[Order, ...] = ()`를 전달한다(accepted 주문만 포함).
+기존 fixture/사용자 평가기는 기본 빈 tuple로 호환되고 warmup HistoryEvaluator도 이 context를 그대로
+전달한다. DSL evaluator의 반환은 기존 StrategyDecision 계약대로 `OrderIntent | CancelIntent` tuple이다.
+flatten 경계 평가에서 같은 종목의 아직 pending인 entry/exit를 명시적인 CancelIntent로 먼저 취소한 뒤
+실제 보유 수량 전체의 market exit 하나만 수락한다. 일반 pending dedupe/long-only 검사는 해제하지 않는다.
+이미 수량이 일치하는 `session/flatten` market sell이 pending이면 그대로 유지해 제출 시각/latency를
+재시작하지 않는다. 미보유이면 pending entry만 취소하고 sell을 만들지 않는다. 경계 이벤트에서 기존
+주문이 평가보다 먼저 이미 체결됐다면 소급 취소하지 않고 실제 보유를 다음 eligible 이벤트로 청산한다.
+이는 미래 clock을 미리 적용하는 entry filter가 아니라 경계 close에서 관측한 취소/교체 정책이다.
+
+OHLC limit의 declared spread는 실제 quote bound와 구분한다. quote가 없으면 buy raw low가
+`limit/(1+spread_bps/20000)` 이하, sell raw high가 `limit/(1-spread_bps/20000)` 이상이어야
+intrabar 체결할 수 있다. open의 실행-side 가격이 이미 유리하면 open을 사용한다. 그렇지 않으면 위
+raw 경계가 reference이고 정확한 limit이 spread 적용 base다(Decimal 나눗셈/곱셈의 경계 roundoff만
+보정). 충분히 관통한 뒤에도 raw limit에 spread를 다시 더해 자동 미체결시키지 않는다. 이후 adverse
+slippage만 limit으로 제한한다. 실제 quote가 limit 밖이면 quote를 잘라 가짜 체결하지 않는다.
+모든 경우 spread=abs(base-reference)×수량, slippage=abs(execution-base)×수량을 유지한다.
 
 ### Tick/quote 업로드와 원격 분봉
 

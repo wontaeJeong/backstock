@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Protocol
 
-from packages.backtest.models import PortfolioSnapshot, StrategyDecision
+from packages.backtest.models import Order, PortfolioSnapshot, StrategyDecision
 from packages.domain.market_data import Bar
 
 
@@ -10,6 +10,7 @@ class EvaluationContext:
     current_bar: Bar
     history: tuple[Bar, ...]
     portfolio: PortfolioSnapshot
+    pending_orders: tuple[Order, ...] = ()
 
 
 class StrategyEvaluator(Protocol):
