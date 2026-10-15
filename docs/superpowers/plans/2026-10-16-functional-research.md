@@ -36,10 +36,10 @@ Required API:
 - `POST /research/experiments/walk-forward` body `{base,train_bars,test_bars,folds,axes?}` max4 folds/32 runs/30s budget. Train-only selection, untouched test fold, history warmup without training fills; report ranges and actual run IDs, partial/not-run explicitly.
 - `POST /research/experiments/portfolio` body `{initial_cash,components:[{weight,request:SimulationRequest}]}` 2..5, sum≤1; fixed independent budget allocation, common-timestamp curve/reserve cash/correlation with exclusions and same-demo-pattern warning.
 - `GET /research/experiments/{id}` immutable artifact retrieval.
-- [ ] Write/run RED tests for analytics, library immutable/archive/pagination/legacy payload, no-future train/test, same snapshot grid, budgets and invalid IDs.
-- [ ] Implement focused models/services/adapters and bounded threadpool API. Keep `SimulationReport` response compatibility; verify stored raw JSON hash before default injection.
-- [ ] Test hand-calculated fees/PnL/drawdown/roundtrips, null undefined metrics, actual engine runs and CSV injection; run full Python suite/Ruff/mypy.
-- [ ] Document API contract and limitations; commit only owned files and report tests/concerns.
+- [x] Write/run RED tests for analytics, library immutable/archive/pagination/legacy payload, no-future train/test, same snapshot grid, budgets and invalid IDs.
+- [x] Implement focused models/services/adapters and bounded threadpool API. Keep `SimulationReport` response compatibility; verify stored raw JSON hash before default injection.
+- [x] Test hand-calculated fees/PnL/drawdown/roundtrips, null undefined metrics, actual engine runs and CSV injection; run full Python suite/Ruff/mypy.
+- [x] Document API contract and limitations; commit only owned files and report tests/concerns.
 
 ### Task 2: 단기매매 데이터·지표·체결·세션 기능
 **Files:** Extend existing domain market-data/strategy schema, indicators/evaluator, backtest models/execution/processing, simulation models/services, yfinance/local adapters; focused support modules; tests `tests/research/test_execution_features.py`, provider/strategy fixture tests. Extend Task1 API docs contract for Task4.
@@ -52,9 +52,9 @@ Required API:
 - Add optional strategy session controls for New York entry start/end, weekdays, close-based flatten before session end. No fill at signal close; late flatten may remain unfilled and is warned.
 - Remote Yahoo 1m/5m uses explicit interval, converts provider open labels to close, validates current provider range restrictions and records provenance; offline fixtures, no silent fallback. Curated Nasdaq symbol catalog search and existing-symbol compatibility; no claim complete PIT universe.
   Conservative free-source bounds are 1m last7days and 5m last60days; only finalized bars at acquisition are published. Remote tick is rejected. Curated catalog search is labeled limited/current, not an exhaustive historical Nasdaq universe.
-- [ ] Write/run failing next-event/latency/spread/quote/volume/stop-gap/intrabar/no-future tests and provider timestamp/range/adjustment/checksum fixtures.
-- [ ] Implement and propagate models through simulation config and metadata. Preserve legacy artifact validation established Task1.
-- [ ] Full Python regression, lint/type/golden/property tests; document exact price/time policies and unsupported queue/partial fills; commit/report.
+- [x] Write/run failing next-event/latency/spread/quote/volume/stop-gap/intrabar/no-future tests and provider timestamp/range/adjustment/checksum fixtures.
+- [x] Implement and propagate models through simulation config and metadata. Preserve legacy artifact validation established Task1.
+- [x] Full Python regression, lint/type/golden/property tests; document exact price/time policies and unsupported queue/partial fills; commit/report.
 
 ### Task 3: 승인 기반 가상매매 backend
 **Files:** Create focused `packages/domain/paper.py`, `packages/application/paper.py`, `packages/broker/paper_store.py`, `apps/api/paper.py`, tests `tests/paper/`, update `BROKER_INTEGRATION.md` and API contract. Register in app.
@@ -62,9 +62,9 @@ Required API:
 - Also `POST /paper/accounts/{id}/quotes` `{symbol,price,quote_at,idempotency_key}` for explicit manual valuation marks, and `GET /paper/accounts/{id}/reconciliation` for internal initial-cash/fill/position ledger consistency (not external broker reconciliation). Quotes/proposals do not themselves fill orders; display valuation quote/source separately from cash/realized money. Kill switch blocks new order risk, not safe reject/cancel or read-only checks.
 - Pure domain money/position logic, no live SDK/credentials/network. User-supplied/snapshot quote is explicitly historical/manual, not live. Proposed orders do not change balances; approval applies risk and executes a labeled paper fill at the reference quote with declared costs. Long-only, no negative cash/positions, bounded notional/order size. Reject/cancel are real state transitions.
 - File lock + atomic mutable account state, immutable audit/event records, persistent request-id binding; reusing key with changed payload is rejected, exact retry returns same result after restart. Kill switch blocks proposals/approval, production flags cannot turn this into real broker.
-- [ ] RED approval-bypass, insufficient cash/position, idempotency conflict/exact retry/restart, concurrent approvals, quote marks/unchanged cash, internal reconciliation, kill-switch and audit redaction tests.
-- [ ] Implement domain→application→store/API boundaries with bounded input/threadpool and documented Korean semantics.
-- [ ] Full Python suite/lint/type, architecture dependency tests; commit/report contracts for UI.
+- [x] RED approval-bypass, insufficient cash/position, idempotency conflict/exact retry/restart, concurrent approvals, quote marks/unchanged cash, internal reconciliation, kill-switch and audit redaction tests.
+- [x] Implement domain→application→store/API boundaries with bounded input/threadpool and documented Korean semantics.
+- [x] Full Python suite/lint/type, architecture dependency tests; commit/report contracts for UI.
 
 ### Task 4: 모든 기능의 한국어 워크벤치 UI·통합 검증
 **Files:** Focused `apps/web/components/research/*` and `apps/web/lib/*`, research route proxy allowlist, workspace/draft/schema, styles, `tests/e2e/features.spec.ts`, documentation and feature matrix. No financial calculation duplication.
@@ -76,7 +76,7 @@ Required API:
   Complete small outcome bridges if missing: analysis statistic `payoff_ratio` = average positive closed-lot net PnL / absolute average negative closed-lot net PnL (null+reason without either class); `GET /research/experiments/{id}/analysis` for portfolio-only returns server-computed initial_cash/final_equity/net_profit/total_return/max_drawdown, all nullable with reason when aggregate curve is incomplete. Do not calculate these financial outcomes in the frontend or mutate prior experiment artifacts.
 - Grid/cost scenarios, chronological walk-forward and fixed-budget portfolio controls/results use current edited strategy and actual run IDs. In-sample/failed/not-run/zero-trade distinctions visible.
 - Paper account/propose/approve/reject/cancel/kill-switch/portfolio/audit controls with explicit paper/manual quote labels and no live-order controls.
-- [ ] RED unit and E2E for every feature group, input preservation/failure viewport, reload/library versions and API errors.
-- [ ] Implement Korean accessible controls with 25-row pages and readable min14px chart/table regions; no decorative dead controls.
-- [ ] Full required lint/type/unit/Python/production build/E2E at390/1440, real engine fixture flows, contract regressions and precise feature/limit matrix.
+- [x] RED unit and E2E for every feature group, input preservation/failure viewport, reload/library versions and API errors.
+- [x] Implement Korean accessible controls with 25-row pages and readable min14px chart/table regions; no decorative dead controls.
+- [x] Full required lint/type/unit/Python/production build/E2E at390/1440, real engine fixture flows, contract regressions and precise feature/limit matrix.
 - [ ] Commit/report; independent whole-branch review, fix covering tests, remote CI then PR merge (already authorized).

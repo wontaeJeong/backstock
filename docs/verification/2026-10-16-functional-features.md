@@ -2,8 +2,9 @@
 
 ## 현재 상태
 
-기능별 backend와 web 통합을 분리해 검증한다. 아래 하위 작업 통과는 전체 UI/제품 완료를 의미하지 않는다.
-최종 테스트·원격 CI·머지는 전체 통합과 독립 리뷰 후 별도로 기록한다.
+기능별 backend와 web 통합을 분리해 검증했다. 각 task의 구현과 집중 재리뷰를 마쳤으며 최종
+전체 브랜치 리뷰·원격 CI·머지는 별도 단계다. 자세한 기능/제한은
+[기능 매트릭스](../reference/research-feature-matrix.md)를 따른다.
 
 ## 연구 backend (Task 1)
 
@@ -35,6 +36,25 @@
   내부 대사 consistent=true, kill 활성 후 신규 제안409/KILL_SWITCH를 확인했다.
 - 실제 broker/시세를 사용하지 않았고 수동 과거/시나리오 입력이다. 모든 POST 후 UI는 현재 계좌를
   다시 조회해 저장된 과거 idempotency 응답이 최신 상태로 오인되지 않게 해야 한다.
+
+## 웹 통합과 scoped 리뷰 보완 (Task 4)
+
+- 전략/데이터/실행 보관함·검색/보관/복원, 상세 통계·실제 가격/상태 replay·전체 CSV, 비교·별도QQQ,
+  현재 전략 기반 grid/walk-forward/독립 예산 portfolio, paper 전체 조작을 실제 API/engine에 연결했다.
+- fixed 수량/금액/percent equity/ATR sizing·%/ATR 손절/익절/추적 손절·요일을 한국어 폼으로 제공한다.
+  임의 중첩 AST는 손실 없는 JSON 모드로 보존하며, 기본 sizing/risk에 JSON 작성을 요구하지 않는다.
+- scoped 리뷰에서 분석 대상/출처 혼합, 기본 폼 누락, 26번째 이전 pending 조작 누락, Yahoo snapshot
+  provenance, 검색 잠금을 재현해 수정했다. 추가 재리뷰에서 발견한 “다른 폼 분기가 미완성일 때 바꾼
+  위험 설정이 복구 후 누락됨”도 신규 unit19개·실제 엔진 viewport2개 RED→GREEN으로 보완했다.
+- 수정 후 Python343/Ruff/format/mypy133, 웹52 unit·production E2E54 통과 보고.
+  controller는 앞선 동일 backend/source 단계에서 전체343/33/52를 직접 재검증했으며 추가 최종 검증을 수행한다.
+- 각 scoped gate의 Important는 모두 재리뷰에서 addressed. 원격 CI/전체 브랜치 최종 리뷰를 대신하지 않는다.
+- 실제 레이아웃: 기본 분석 main 길이390px=3367px/1440px=2626px, 핵심 수치 y≈465px/277px,
+  SVG16px 및 viewBox 내부 bounds, 표14px·행≈68px·25행 페이지·1680px 내부 가로 스크롤.
+  직접 모든 risk/JSON을 펼친 편집 화면은6483px/4904px이며 기본 분석/기본 실행 흐름과 구분한다.
+- controller Linux 컨테이너: API/worker build·migration·health, tick engine18개 분석통계·전략 저장,
+  실제 grid2개, paper 제안/승인/정확 retry/내부 대사 HTTP smoke 통과. UI 수정 중 backend만 검증한
+  것으로 최종 production web 이미지 검증과 구분한다.
 
 ## 유지할 해석 제한
 
