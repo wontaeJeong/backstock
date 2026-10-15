@@ -47,6 +47,36 @@ OPERATORS: Final[tuple[OperatorMetadata, ...]] = (
 
 INDICATORS: Final[tuple[IndicatorMetadata, ...]] = (
     IndicatorMetadata(
+        "vwap",
+        ("period",),
+        "period bars",
+        "price",
+        "close of the current bar",
+        "rolling volume-weighted typical price (high+low+close)/3; null for zero total volume",
+    ),
+    *(
+        IndicatorMetadata(
+            name,
+            ("period", "stddev_multiplier"),
+            "period bars",
+            "price",
+            "close of the current bar",
+            "close SMA plus/minus multiplier times population standard deviation",
+        )
+        for name in ("bollinger_middle", "bollinger_upper", "bollinger_lower")
+    ),
+    *(
+        IndicatorMetadata(
+            name,
+            ("fast_period", "slow_period", "signal_period"),
+            "slow_period bars" if name == "macd" else "slow_period + signal_period - 1 bars",
+            "price difference",
+            "close of the current bar",
+            "SMA-seeded EMA MACD; no future values",
+        )
+        for name in ("macd", "macd_signal", "macd_histogram")
+    ),
+    IndicatorMetadata(
         "sma",
         ("period",),
         "period bars",

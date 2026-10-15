@@ -65,6 +65,7 @@ def apply_fill(state: PortfolioState, fill: Fill) -> PortfolioState:
         total_commission=state.total_commission + fill.commission,
         total_tax=state.total_tax + fill.tax,
         total_slippage=state.total_slippage + fill.slippage,
+        total_spread=state.total_spread + fill.spread,
     )
 
 

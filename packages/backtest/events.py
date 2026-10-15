@@ -18,6 +18,7 @@ class EventKind(StrEnum):
     ORDER_CANCELLED = "order_cancelled"
     ORDER_CANCEL_REJECTED = "order_cancel_rejected"
     ORDER_EXPIRED = "order_expired"
+    ORDER_TRIGGERED = "order_triggered"
     FILL = "fill"
     LEDGER_UPDATE = "ledger_update"
     METRICS_UPDATE = "metrics_update"
@@ -40,5 +41,6 @@ class BacktestEvent(BaseModel):
     commission: Decimal | None = Field(default=None, ge=0)
     tax: Decimal | None = Field(default=None, ge=0)
     slippage: Decimal | None = Field(default=None, ge=0)
+    spread: Decimal | None = Field(default=None, ge=0)
     cash: Decimal | None = None
     equity: Decimal | None = None

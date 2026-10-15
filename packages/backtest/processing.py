@@ -34,7 +34,8 @@ from packages.domain.market_data import Bar
 
 
 def execute_orders(state: EngineState, bar: Bar, config: BacktestConfig) -> None:
-    for index, order in enumerate(tuple(state.orders)):
+    for index, pending_order in enumerate(tuple(state.orders)):
+        order = pending_order
         if order.state is not OrderState.ACCEPTED:
             continue
         if (
@@ -45,6 +46,12 @@ def execute_orders(state: EngineState, bar: Bar, config: BacktestConfig) -> None
             > order.intent.submitted_at.astimezone(ZoneInfo("America/New_York")).date()
         ):
             state.orders[index] = transition_order(order, OrderState.EXPIRED, "session ended")
+            state.record(
+                bar.timestamp,
+                EventKind.ORDER_EXPIRED,
+                "session ended",
+                EventDetails(order_id=order.order_id, instrument_id=bar.instrument_id),
+            )
             continue
         decision = execute_order(
             ExecutionRequest(
@@ -52,13 +59,39 @@ def execute_orders(state: EngineState, bar: Bar, config: BacktestConfig) -> None
                 bar=bar,
                 costs=config.costs,
                 fill_id=f"fill-{len(state.fills) + 1:06d}",
-                bar_duration=timedelta(minutes={"1d": 0, "1m": 1, "5m": 5}[config.bar_interval]),
+                bar_duration=timedelta(
+                    minutes={"1d": 0, "1m": 1, "5m": 5, "tick": 0}[config.bar_interval]
+                ),
+                spread_bps=config.spread_bps,
+                latency_ms=config.latency_ms,
+                volume_participation=config.volume_participation,
             )
         )
         match decision:
             case FilledExecution(fill=fill):
+                if order.intent.stop_price is not None and order.triggered_at is None:
+                    order = order.model_copy(update={"triggered_at": fill.timestamp})
+                    state.orders[index] = order
+                    state.record(
+                        fill.timestamp,
+                        EventKind.ORDER_TRIGGERED,
+                        "stop triggered",
+                        EventDetails(order_id=order.order_id, instrument_id=bar.instrument_id),
+                    )
                 _apply_execution(state, index, order, fill)
-            case PendingExecution(reason="limit_not_touched"):
+            case PendingExecution(reason=reason, triggered=triggered) if reason not in {
+                "not_yet_eligible",
+                "different_instrument",
+            }:
+                if triggered and order.triggered_at is None:
+                    order = order.model_copy(update={"triggered_at": bar.timestamp})
+                    state.orders[index] = order
+                    state.record(
+                        bar.timestamp,
+                        EventKind.ORDER_TRIGGERED,
+                        reason,
+                        EventDetails(order_id=order.order_id, instrument_id=bar.instrument_id),
+                    )
                 if order.intent.time_in_force is TimeInForce.DAY and config.bar_interval == "1d":
                     expired = transition_order(order, OrderState.EXPIRED, "day order expired")
                     state.orders[index] = expired
@@ -180,6 +213,7 @@ def _apply_execution(state: EngineState, index: int, order: Order, fill: Fill) -
             commission=fill.commission,
             tax=fill.tax,
             slippage=fill.slippage,
+            spread=fill.spread,
         ),
     )
     marked = state.mark(fill.timestamp)

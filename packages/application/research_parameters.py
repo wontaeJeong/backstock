@@ -9,7 +9,14 @@ from pydantic import JsonValue
 from packages.application.research_experiment_models import Axis
 from packages.application.simulation_models import SimulationRequest
 
-COST_FIELDS = {"commission_bps", "sell_tax_bps", "slippage_bps"}
+COST_FIELDS = {
+    "commission_bps",
+    "sell_tax_bps",
+    "slippage_bps",
+    "spread_bps",
+    "latency_ms",
+    "volume_participation",
+}
 SIZING_FIELDS = {"quantity", "notional", "percent", "risk_percent", "atr_period", "atr_multiple"}
 RISK_RULES = {"stop_loss", "take_profit", "trailing_stop"}
 
@@ -42,11 +49,15 @@ def validate_axes(base: SimulationRequest, axes: tuple[Axis, ...]) -> None:
         allowed |= path.rsplit(".", 1)[0] in {
             f"strategy.risk.{rule}" for rule in RISK_RULES
         } and leaf in {"value", "atr_period"}
-        allowed |= path == "strategy.order.limit_offset_bps"
+        allowed |= path in {"strategy.order.limit_offset_bps", "strategy.order.stop_offset_bps"}
         condition_path = path.startswith(("strategy.entry.condition.", "strategy.exit.condition."))
         allowed |= condition_path and (
             (parent.get("type") == "constant" and leaf == "value")
-            or (parent.get("type") == "indicator" and leaf == "period")
+            or (
+                parent.get("type") == "indicator"
+                and leaf
+                in {"period", "fast_period", "slow_period", "signal_period", "stddev_multiplier"}
+            )
         )
         if not allowed or parent[leaf] is None or isinstance(parent[leaf], bool):
             msg = f"허용되지 않는 숫자 path: {path}"

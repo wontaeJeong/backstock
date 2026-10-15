@@ -19,7 +19,10 @@ filesystem 쓰기를 검사하고 DB 작업 처리 상태를 주장하지 않는
 분봉 업로드는 `1m`/`5m`, 명시적 UTC offset, bar **종료** timestamp 계약이다. 다음 bar open은
 `timestamp - duration`이며 이전 신호 확정 시각과 같을 수 있다(지연 0 근사). 거래소 세션은 뉴욕 시간,
 DAY 주문은 다음 세션 전에 만료한다. calendar·조기폐장·호가·부분 체결은 지원하지 않는다.
-원격 Yahoo는 일봉만 수집한다. 합성 데모는 `synthetic_demo` lineage로 실제 시세와 분리한다.
+원격 Yahoo는 일봉과 제한된 최근 1m/5m finalized bar를 수집한다. 로컬 raw tick/quote 파일은
+event timestamp와 별도 bid/ask를 보존하며 같은 엔진의 다음 eligible event 정책을 사용한다.
+spread/latency/optional all-or-none volume cap은 시나리오이고 실제 queue·부분 체결은 아니다.
+합성 데모는 `synthetic_demo` lineage로 실제 시세와 분리한다.
 
 ## 개요
 
@@ -98,7 +101,8 @@ pass-through 정책이고, Prompt 08에서 worker/job persistence와 연결한�
 종목별로 직전 호출과 비교해 포지션 수량 변화를 관찰함으로써 진입가·진입 시점·고점을 자체 상태로
 추론하며(별도 DB나 주문 상태 조회 없이), 매 bar 지표 lookback이 부족하면 조건을 명시적으로
 false로 평가해 warm-up 기간에는 주문을 생성하지 않는다. 생성되는 `OrderIntent`는 항상 `market`/`limit`
-유형이며, `STOP` 계열 주문 유형과 gap/partial fill 등 체결 세부사항은 Prompt 07이 확장한다.
+유형 또는 stop/stop_limit이며, 보수적인 gap/trigger/limit 정책을 실행 모델에 둔다.
+session controls는 신호 시각의 뉴욕 weekday/clock을 사용하고 flatten도 다음 이벤트로만 체결한다.
 
 ## 저장
 

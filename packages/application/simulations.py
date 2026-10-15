@@ -93,6 +93,9 @@ class SimulationService:
         config = BacktestConfig(
             initial_cash=request.initial_cash,
             bar_interval=request.strategy.timeframe,
+            spread_bps=request.spread_bps,
+            latency_ms=request.latency_ms,
+            volume_participation=request.volume_participation,
             costs=CostConfig(
                 commission_rate=request.commission_bps / 10000,
                 sell_tax_rate=request.sell_tax_bps / 10000,
@@ -117,6 +120,9 @@ class SimulationService:
             cancellation=RunDeadline(deadline=deadline),
         )
         warnings = [
+            "체결 가정: spread/latency 시나리오이며 실제 queue·충격·부분 체결을 재현하지 않습니다. "
+            "volume_participation=null은 유동성 보장이 아닌 무제한 가정입니다. "
+            "bar 지연은 다음 eligible open까지 올림하며 OHLC 내부 경로는 알 수 없습니다.",
             "과거 수익률은 미래 수익을 보장하지 않습니다. 실주문 기능은 없습니다.",
             "종가 확정 후 판단하고 다음 bar 시가부터 체결합니다. "
             "손절·익절은 종가 조건이며 보호 주문이 아닙니다.",
@@ -126,6 +132,7 @@ class SimulationService:
             "거래소 휴장·조기폐장 calendar가 없어 데이터 완전성을 보장하지 않습니다. "
             "누락을 채우지 않습니다.",
         ]
+        warnings.extend(_session_warnings(request))
         if trade_start is not None or trade_end is not None:
             warnings.append(
                 f"Evaluation range: {bars[0].timestamp.isoformat()} .. "
@@ -195,6 +202,15 @@ def _report_hash(report: SimulationReport) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _session_warnings(request: SimulationRequest) -> list[str]:
+    if request.strategy.session is not None and request.strategy.session.flatten_at is not None:
+        return [
+            "마감 청산은 종가 기반 신호입니다. 다음 이벤트 부재·지연으로 미체결/보유가 "
+            "남을 수 있으며 강제 종가 체결하지 않습니다."
+        ]
+    return []
+
+
 def _validate_manifest(manifest: SnapshotManifest, request: SimulationRequest) -> None:
     if manifest.currency != "USD" or manifest.timezone != "America/New_York":
         message = (
@@ -211,6 +227,24 @@ def _validate_manifest(manifest: SnapshotManifest, request: SimulationRequest) -
 
 
 def _validate_intraday(bars: tuple[Bar, ...], interval: str) -> None:
+    if interval == "tick":
+        previous_tick: datetime | None = None
+        for bar in bars:
+            local = bar.timestamp.astimezone(ZoneInfo("America/New_York"))
+            minute = local.hour * 60 + local.minute
+            if (
+                bar.price_adjustment != "raw"
+                or bar.volume_adjustment != "raw"
+                or bar.timestamp_provenance != "explicit_offset"
+                or local.weekday() >= SATURDAY
+                or not SESSION_OPEN_MINUTES <= minute < SESSION_CLOSE_MINUTES
+                or (previous_tick is not None and bar.timestamp <= previous_tick)
+                or not bar.open == bar.high == bar.low == bar.close
+            ):
+                message = "tick requires raw, unique ordered aware regular-session point events"
+                raise ValueError(message)
+            previous_tick = bar.timestamp
+        return
     if interval == "1d":
         dates = {bar.timestamp.astimezone(ZoneInfo("America/New_York")).date() for bar in bars}
         if len(dates) != len(bars):

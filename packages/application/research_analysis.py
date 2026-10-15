@@ -147,6 +147,12 @@ def analyze(report: SimulationReport) -> Analysis:
     metric("commission", summary.commission, "sum actual fill commissions in USD", "")
     metric("tax", summary.tax, "sum actual fill taxes in USD", "")
     metric(
+        "spread",
+        summary.spread,
+        "half-spread adverse cost in USD; included in execution price, separate from slippage",
+        "",
+    )
+    metric(
         "slippage",
         summary.slippage,
         "adverse price slippage in USD; already included in execution price, not subtracted again",
@@ -298,12 +304,14 @@ def export_csv(report: SimulationReport, kind: Literal["fills", "equity", "order
             "state",
             "filled_quantity",
             "state_reason",
+            "triggered_at",
             "instrument_id",
             "submitted_at",
             "side",
             "quantity",
             "order_type",
             "limit_price",
+            "stop_price",
             "time_in_force",
             "reason",
             "strategy_version",

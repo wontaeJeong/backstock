@@ -43,6 +43,12 @@ class YFinanceClient(Protocol):
     ) -> bytes: ...
 
 
+class IntervalYFinanceClient(Protocol):
+    def history_csv(
+        self, *, symbol: str, start: datetime, end: datetime, auto_adjust: bool, interval: str
+    ) -> bytes: ...
+
+
 class _Frame(Protocol):
     def reset_index(self) -> "_Frame": ...
 
@@ -55,14 +61,21 @@ class _Ticker(Protocol):
 
 class DefaultYFinanceClient:
     def history_csv(
-        self, *, symbol: str, start: datetime, end: datetime, auto_adjust: bool
+        self,
+        *,
+        symbol: str,
+        start: datetime,
+        end: datetime,
+        auto_adjust: bool,
+        interval: str = "1d",
     ) -> bytes:
         module = import_module("yfinance")
         ticker_factory = cast("Callable[[str], _Ticker]", vars(module)["Ticker"])
         frame = ticker_factory(symbol).history(
             start=start,
             end=end,
-            interval="1d",
+            interval=interval,
+            prepost=False,
             auto_adjust=auto_adjust,
             back_adjust=False,
             actions=True,
@@ -84,7 +97,7 @@ class YFinanceProvider:
     _retry_policy: RetryPolicy
     _symbol_resolver: ProviderSymbolResolver
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 -- independent adapter dependencies, including the acquisition clock
         self,
         *,
         raw_store: FileRawStore,
@@ -92,6 +105,7 @@ class YFinanceProvider:
         client: YFinanceClient | None = None,
         request_cache: FileRequestCache | None = None,
         retry_policy: RetryPolicy | None = None,
+        clock: "Callable[[], datetime]" = lambda: datetime.now(UTC),
     ) -> None:
         """Create a Yahoo daily-bar adapter with optional persistent request caching."""
         self._client = client or DefaultYFinanceClient()
@@ -100,6 +114,7 @@ class YFinanceProvider:
         self._cache_ttl = DEFAULT_CACHE_TTL
         self._retry_policy = retry_policy or RetryPolicy()
         self._symbol_resolver = symbol_resolver
+        self._clock = clock
 
     @property
     def capabilities(self) -> ProviderCapabilities:
@@ -111,8 +126,7 @@ class YFinanceProvider:
         )
 
     def get_bars(self, request: BarRequest) -> MarketDataResult[Bar]:
-        if request.interval != "1d":
-            raise not_supported(self.name, "intraday bars; use a close-labelled local file")
+        self._validate_interval(request)
         artifact = self._artifact(request)
         bars = bars_from_csv(
             artifact.payload_path.read_bytes(),
@@ -125,7 +139,17 @@ class YFinanceProvider:
         )
         start = request.start.astimezone(UTC)
         end = request.end.astimezone(UTC)
-        selected = tuple(bar for bar in bars if start <= bar.timestamp.astimezone(UTC) < end)
+        if request.interval != "1d":
+            duration = timedelta(minutes=1 if request.interval == "1m" else 5)
+            bars = tuple(
+                bar.model_copy(update={"timestamp": bar.timestamp + duration}) for bar in bars
+            )
+        selected = tuple(
+            bar
+            for bar in bars
+            if start <= bar.timestamp.astimezone(UTC) < end
+            and (request.interval == "1d" or bar.timestamp <= artifact.acquired_at)
+        )
         return MarketDataResult(items=selected, lineage=lineage(artifact))
 
     def get_corporate_actions(self, request: BarRequest) -> MarketDataResult[CorporateAction]:
@@ -151,6 +175,7 @@ class YFinanceProvider:
         raise not_supported(self.name, "exchange calendars")
 
     def _artifact(self, request: BarRequest) -> RawArtifact:
+        self._validate_interval(request)
         provider_symbol = self._symbol_resolver.resolve(
             provider=self.name,
             instrument_id=request.instrument.instrument_id,
@@ -165,6 +190,15 @@ class YFinanceProvider:
 
         def fetch() -> bytes:
             try:
+                if request.interval != "1d":
+                    duration = timedelta(minutes=1 if request.interval == "1m" else 5)
+                    return cast("IntervalYFinanceClient", self._client).history_csv(
+                        symbol=provider_symbol,
+                        start=request.start - duration,
+                        end=request.end - duration,
+                        auto_adjust=self._auto_adjust(request.adjustment),
+                        interval=request.interval,
+                    )
                 return self._client.history_csv(
                     symbol=provider_symbol,
                     start=request.start,
@@ -216,12 +250,40 @@ class YFinanceProvider:
             "timezone": request.instrument.timezone,
             "start": request.start.isoformat(),
             "end": request.end.isoformat(),
-            "interval": "1d",
+            "interval": request.interval,
+            "prepost": False,
+            "upstream_timestamp_label": "session_date" if request.interval == "1d" else "open",
+            "timestamp_label": "session_date" if request.interval == "1d" else "close",
+            "finalization_policy": "close_at_or_before_acquisition",
+            "upstream_start": (
+                request.start - timedelta(minutes={"1d": 0, "1m": 1, "5m": 5}[request.interval])
+            ).isoformat(),
+            "upstream_end": (
+                request.end - timedelta(minutes={"1d": 0, "1m": 1, "5m": 5}[request.interval])
+            ).isoformat(),
             "price_adjustment": request.adjustment.value,
             "volume_adjustment": AdjustmentMode.RAW.value,
             "adjustment_vintage": "retrospective_at_acquisition",
             "actions": True,
         }
+
+    def _validate_interval(self, request: BarRequest) -> None:
+        if request.interval == "tick":
+            raise not_supported(self.name, "remote tick data")
+        if request.interval == "1d":
+            return
+        days = 7 if request.interval == "1m" else 60
+        now = self._clock()
+        if request.start < now - timedelta(days=days) or request.end > now:
+            raise MarketDataError(
+                provider=self.name,
+                category=ProviderErrorCategory.INVALID_REQUEST,
+                message=(
+                    f"Yahoo 분봉 {request.interval} is restricted to the last {days} days; "
+                    "no fallback"
+                ),
+                retryable=False,
+            )
 
     @staticmethod
     def _auto_adjust(adjustment: AdjustmentMode) -> bool:

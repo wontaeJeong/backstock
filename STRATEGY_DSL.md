@@ -28,7 +28,8 @@
 - `exit.condition`: 포지션 보유 중 조건 기반 매도(선택, 생략 가능).
 - `risk`: stop-loss/take-profit/trailing-stop/최대 보유 기간처럼 조건식이 아닌 포지션 리스크 청산.
 - `position_sizing`: 진입 수량 계산.
-- `order`: 생성되는 주문의 유형(`market`/`limit`)과 `time_in_force`.
+- `order`: 생성되는 주문의 유형(`market`/`limit`/`stop`/`stop_limit`)과 `time_in_force`.
+- `session`: 선택적 뉴욕 진입 시각/요일·close 기반 마감 청산. 기본 null로 기존 행동 유지.
 
 ## 값(Value)
 
@@ -68,6 +69,10 @@
 | `volume_average` | period | period | 구간 평균 거래량 |
 | `volume_ratio` | period | period + 1 | 현재 거래량 / 이전 period 평균 거래량 |
 | `return` | period | period + 1 | `close_t / close_{t-period} - 1` |
+| `vwap` | period | period | rolling typical price × volume / total volume; zero volume은 null |
+| `bollinger_middle/upper/lower` | period, stddev_multiplier(default 2) | period | close SMA ± 모집단 표준편차 × multiplier |
+| `macd` | fast_period(default 12), slow_period(default 26) | slow_period | SMA-seeded fast EMA − slow EMA |
+| `macd_signal/macd_histogram` | fast/slow, signal_period(default 9) | slow + signal − 1 | MACD EMA / MACD − signal |
 
 지표는 항상 현재 bar의 close 시점(해당 bar가 확정된 시점)에 평가 가능하다. lookback이 부족하면
 지표는 `null`을 반환하고, 이를 사용하는 비교/교차 조건은 명시적으로 false가 되어 warm-up 기간에는
@@ -98,15 +103,28 @@ all/any 내부 조건 중 하나라도 준비되지 않았다면 해당 조건 �
 
 ## 주문(Order)
 
-- `order_type`: `market` 또는 `limit`.
-- `limit_offset_bps`: `limit`일 때 필수, `market`일 때 금지. 매수는 참조가 대비 +offset, 매도는
+- `order_type`: `market`, `limit`, `stop`, `stop_limit`.
+- `limit_offset_bps`: `limit`/`stop_limit`일 때 필수, 나머지일 때 금지. 매수는 참조가 대비 +offset, 매도는
   -offset에 지정가를 둔다.
 - `time_in_force`: `day` 또는 `gtc`.
+- `stop_offset_bps`: `stop`/`stop_limit`일 때 필수, 나머지일 때 금지. 매수 +offset, 매도 −offset.
+  두 offset은 0 이상 10,000 미만이다. OrderIntent에 양수 stop_price/limit_price로 고정한다.
 
-STOP/STOP_LIMIT/TAKE_PROFIT/TRAILING_STOP 주문 유형과 gap/volume participation 등 체결 세부사항은
-Prompt 07(리스크 정책과 주문 체결)에서 `packages.backtest`의 실행 모델을 확장한다. 현재 DSL의
-stop-loss/take-profit/trailing-stop은 조건이 충족되면 `market`/`limit` `OrderIntent`(원래 `order` 설정을
-그대로 사용)를 생성하는 방식으로 구현되어 있다.
+STOP은 adverse gap open을 사용한다. STOP_LIMIT의 intrabar trigger는 그 bar의 high/low 순서를
+추정하지 않고 다음 bar/event부터 limit 평가를 한다. trigger state와 pending 중복 거절을 추적한다.
+risk stop-loss/take-profit/trailing-stop은 여전히 종가 조건에서 원래 order 설정의 intent를 생성한다.
+`session.flatten_at`만 별도의 market exit intent이며 같은 close에 체결하지 않는다.
+
+### 세션과 새 지표 파라미터
+
+session은 `entry_start`, `entry_end`, `flatten_at`(각 null 또는 HH:MM 09:30..16:00 뉴욕),
+`weekdays`(unique Monday=0..Friday=4, 기본 평일 전체)를 받는다. entry start 포함/end 제외이며
+필터는 체결일이 아닌 신호 시각에 적용한다. flatten_at 이후 진입도 막는다. 일봉은 weekday-only만
+가능하고 intraday clock을 거부한다. 마감 신호가 마지막 이벤트이면 만료/보유가 남을 수 있다.
+
+IndicatorRef의 period/shift 계약은 그대로이며 stddev_multiplier (0,10], fast/slow/signal 기간은
+1..5000이다. MACD fast<slow를 검증하고 MACD 계산은 period 대신 fast/slow/signal을 사용한다.
+상세 wire schema·예시는 `docs/reference/research-features-api.md`를 따른다.
 
 ## Validation
 
@@ -116,7 +134,7 @@ stop-loss/take-profit/trailing-stop은 조건이 충족되면 `market`/`limit` `
 - 잘못된 타입 (Pydantic 타입 검증).
 - 0 이하의 period.
 - 음수 shift(미래 참조).
-- 지원하지 않는 timeframe(`1d`, `1m`, `5m` 허용; simulation의 snapshot 주기와 일치해야 함).
+- 지원하지 않는 timeframe(`1d`, `1m`, `5m`, `tick` 허용; simulation의 snapshot 주기와 일치해야 함).
 - 위험한 sizing(`percent_equity.percent` 또는 `atr_risk.risk_percent`가 1 초과, `percent` 모드
   stop_loss/trailing_stop의 `value`가 100 초과).
 - 8을 초과하는 조건 트리 깊이.

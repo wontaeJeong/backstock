@@ -26,6 +26,7 @@ class BacktestSummary(_FrozenModel):
     commission: Decimal
     tax: Decimal
     slippage: Decimal
+    spread: Decimal = Decimal(0)
 
 
 class ReproducibilityMetadata(_FrozenModel):

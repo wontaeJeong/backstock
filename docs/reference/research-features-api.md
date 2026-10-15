@@ -1,13 +1,13 @@
 # 연구 기능 API 계약
 
-Task 1 backend 계약. `/openapi.json`에 모든 요청·응답 schema가 등록된다. 아래 타입은 JSON wire
+Task 1/2 backend 계약. `/openapi.json`에 모든 요청·응답 schema가 등록된다. 아래 타입은 JSON wire
 타입이다. 금액·비율·수익률·상관계수는 **Decimal 문자열**, 수익률은 백분율이 아닌 비율이다.
 날짜는 offset 있는 ISO 8601이다. `null`은 0이 아니며 `reason`/`error`를 함께 표시한다.
 실제 체결·평가·snapshot을 사용하며 실주문은 없다.
 
 ## 공통 요청
 
-기존 `POST /simulations`와 `GET /simulations/{run_id}`의 계약은 변경하지 않는다.
+기존 `POST /simulations`와 `GET /simulations/{run_id}`에 선택 필드를 하위 호환으로 추가한다.
 `SimulationRequest`와 `StrategyDefinition`, `SimulationReport`, `SnapshotManifest`의 정확한 schema는
 OpenAPI의 같은 이름을 재사용한다. 아래 `base`는 완전한 실행 가능 요청 예시다.
 
@@ -85,7 +85,7 @@ type Analysis = {
   run_id: Hex64;
   statistics: Record<"net_profit" | "total_return" | "max_drawdown" | "cagr" |
     "volatility" | "sharpe" | "sortino" | "win_rate" | "profit_factor" | "expectancy" |
-    "exposure" | "turnover" | "holding_seconds" | "commission" | "tax" | "slippage", Statistic>;
+    "exposure" | "turnover" | "holding_seconds" | "commission" | "tax" | "slippage" | "spread", Statistic>;
   daily_returns: ReturnPoint[]; monthly_returns: ReturnPoint[];
   drawdown: {timestamp: ISODateTime; value: DecimalString}[];
   round_trips: RoundTrip[];
@@ -121,7 +121,7 @@ type Analysis = {
 JSON 상세 조회는 변경하지 않는다. 예시 fills 헤더:
 
 ```csv
-fill_id,order_id,instrument_id,timestamp,side,quantity,reference_price,execution_price,commission,tax,slippage
+fill_id,order_id,instrument_id,timestamp,side,quantity,reference_price,execution_price,commission,tax,slippage,spread
 ```
 
 ## 비교·QQQ
@@ -185,12 +185,14 @@ net_profit:null,error:"..."}`로 보존한다. 엔진 취소/실패로 artifact�
 
 허용 path(기존 필드에만 적용, 선택한 DSL 종류에 없는 필드를 생성하지 않음):
 
-- `commission_bps`, `sell_tax_bps`, `slippage_bps`
+- `commission_bps`, `sell_tax_bps`, `slippage_bps`, `spread_bps`, `latency_ms`, `volume_participation`
+  (`volume_participation`은 base에서 null이 아닌 값을 먼저 설정해야 sweep 가능)
 - `strategy.position_sizing.{quantity|notional|percent|risk_percent|atr_period|atr_multiple}`
 - `strategy.risk.max_holding_bars`
 - `strategy.risk.{stop_loss|take_profit|trailing_stop}.{value|atr_period}`
-- `strategy.order.limit_offset_bps`
-- 진입/청산 condition 안의 `constant.value`, `indicator.period`.
+- `strategy.order.limit_offset_bps`, `strategy.order.stop_offset_bps`
+- 진입/청산 condition 안의 `constant.value`,
+  `indicator.{period|fast_period|slow_period|signal_period|stddev_multiplier}`.
   예: `strategy.entry.condition.right.value`, `strategy.entry.condition.left.period`,
   `strategy.entry.condition.conditions.0.left.period` (배열 index는 dot 숫자).
 
@@ -266,6 +268,186 @@ type PortfolioExperiment = {
 통계 계산에만 float를 사용한다. 유한한 무단위 계수만 Decimal 문자열로 반환한다.
 포트폴리오 curve는 여전히 모든 공통 timestamp를 보존한다. 동일 demo 가격 패턴 경고를 반드시 표시한다.
 실패한 component가 있으면 curve와 correlations 모두 비운다. 실패 예산을 무손실 현금으로 가장하지 않는다.
+
+## 단기매매 데이터·체결·DSL 확장 (Task 2)
+
+### 실행 설정과 결과
+
+```ts
+type Timeframe = "1d" | "1m" | "5m" | "tick";
+type ExecutionOptions = {
+  spread_bps?: DecimalString | number; // 0..100, default "0"; 전체 bid-ask 폭
+  latency_ms?: number;                // integer 0..60000, default 0
+  volume_participation?: DecimalString | number | null; // (0,1], default null
+};
+// SimulationRequest와 report.config(BacktestConfig)에 위 세 필드가 존재한다.
+// 응답 Decimal은 항상 문자열, 응답 latency_ms는 정수다. config.bar_interval은 Timeframe.
+```
+
+- `null`은 **거래량 제한 없음**이다. 기존 일봉 결과의 경제적 기본값을 유지하지만 실제 유동성 보장이
+  아니다. 값을 켜면 `주문 전체 수량 <= event size/bar volume × fraction`일 때만 전량 체결한다.
+  정수 내림 효과가 있으며 부분 체결·남은 수량의 분할·호가 잔량·queue/시장 충격을 지원하지 않는다.
+  quote-only `size=0`은 제한을 켰을 때 체결할 수 없다. OHLC 전체 거래량은 사후 시나리오 상한일 뿐
+  open 시점에 관측한 유동성이라는 주장이 아니다.
+- 신호 bar/event에서는 체결하지 않는다. tick은 `event timestamp > submitted_at`이면서
+  `timestamp >= submitted_at + latency_ms`인 다음 이벤트부터 실행한다. 분봉은 **bar open**
+  (`close timestamp - duration`)이 지연 조건을 충족해야 하며, 경계 사이 지연은 다음 open까지 올린다.
+  bar 내부 지연 시각에 임의 가격을 보간하지 않는다. 일봉은 기존 다음 bar open 근사다.
+- 제공 quote가 없으면 buy/sell 기준가에 `±spread_bps/20000`, 그 다음 adverse slippage를 적용한다.
+  제공 quote가 있으면 시나리오 spread를 추가하지 않고 midpoint가 `reference_price`, ask/bid가
+  buy/sell base다. 이후 slippage를 적용하며 limit 경계를 넘지 않는다. quote 자체가 limit을 넘으면
+  체결하지 않는다. stop trigger는 제공 trade `price`/OHLC touch로 판정한다.
+- `Fill.spread`(Decimal 문자열, 과거 artifact 기본 "0")는 `abs(base-reference)×quantity`,
+  `Fill.slippage`는 `abs(execution-base)×quantity`다. 둘은 겹치지 않는다. `BacktestSummary.spread`
+  는 실제 Fill.spread 합계다. `BacktestEvent.spread`는 Decimal 문자열 또는 null이며 fill event에
+  기록된다. 현금·equity는 실제 execution price를 이미 사용하므로 **둘 다 다시 차감하지 않는다**.
+  `Analysis.statistics.spread`도 같은 진단값이며 순손익에서 추가 공제하는 비용이 아니다.
+- 예: bid=99, ask=101, 수량 2, slippage=10bps면 midpoint=100, buy price=101.101,
+  spread=2, slippage=0.202다. 수수료가 없으면 실제 현금 지출은 202.202이며 진단비용을 더 빼지 않는다.
+- 결과 warnings에 지연 grid·무제한/전량 체결 가정·호가 queue/실제 지연/달력 미검증을 표시한다.
+  미청산 포지션은 마지막 trade/bar close로 평가하며 quote 청산 또는 실주문 체결로 가장하지 않는다.
+
+### Stop / stop-limit
+
+```ts
+type OrderType = "market" | "limit" | "stop" | "stop_limit";
+type OrderRule = {
+  order_type?: OrderType; // default market
+  limit_offset_bps?: DecimalString | number | null; // [0,10000), default null
+  stop_offset_bps?: DecimalString | number | null;  // [0,10000), default null
+  time_in_force?: "day" | "gtc"; // default day
+};
+// engine OrderIntent (DSL에서 생성됨)
+type TriggerPrices = {
+  limit_price: DecimalString | null; // >0; limit/stop_limit에서 필수, 나머지는 금지
+  stop_price: DecimalString | null;  // >0; stop/stop_limit에서 필수, 나머지는 금지
+};
+// report.result.orders의 추가 필드: triggered_at: ISODateTime | null (과거 기본 null).
+// 상태 enum은 accepted|filled|cancelled|expired|rejected 그대로다.
+// event.kind에는 order_triggered를 추가한다.
+```
+
+- DSL의 limit/stop-limit에는 `limit_offset_bps`, stop/stop-limit에는 `stop_offset_bps`가 필수다.
+  나머지 주문 종류에서는 해당 필드가 null이어야 한다. 기준은 신호 close이고 buy는 +offset,
+  sell은 −offset이다. 예: `{"order_type":"stop_limit","stop_offset_bps":"50",
+  "limit_offset_bps":"100","time_in_force":"gtc"}`.
+- stop은 buy high≥stop / sell low≤stop에서 발동한다. 불리한 open gap은 stop 가격이 아닌 open에
+  체결한다. intrabar touch는 가격 stop에서 시나리오 비용을 적용하고 시각을 bar close에 기록한다.
+  실제 intrabar trigger 시각을 아는 것으로 표시하지 않는다.
+- stop-limit은 open에서 이미 trigger한 경우에만 같은 bar의 limit touch를 사용할 수 있다.
+  intrabar trigger라면 high/low 순서를 알 수 없어 **그 bar는 미체결**로 둔다. `order_triggered`
+  event 사유 `stop_limit_intrabar_ambiguous`와 triggered_at을 남기고 이후 bar/event의 limit으로만
+  평가한다. 거래량 상한으로 미체결인 stop도 발동 상태를 유지한다. pending 주문의 중복은 거절한다.
+- DAY 분봉/tick은 뉴욕 날짜가 바뀌기 전에 만료하고, 일봉 DAY는 다음 eligible bar에서 미체결이면
+  만료한다. GTC는 이후 데이터까지 유지한다. 종료 시 기본 만료이며 보유를 임의 강제청산하지 않는다.
+  기존 risk.stop_loss/take_profit/trailing_stop은 여전히 close 기반 조건이다.
+
+orders CSV 헤더(추가 필드 포함):
+
+```csv
+order_id,state,filled_quantity,state_reason,triggered_at,instrument_id,submitted_at,side,quantity,order_type,limit_price,stop_price,time_in_force,reason,strategy_version,rule_path
+```
+
+### 지표와 세션
+
+`IndicatorRef.indicator`는 기존 `sma|ema|rsi|atr|rolling_high|rolling_low|volume_average|volume_ratio|return`
+외에 `vwap|bollinger_middle|bollinger_upper|bollinger_lower|macd|macd_signal|macd_histogram`을 허용한다.
+`type:"indicator"`, `period` 정수 1..5000(기존 계약대로 필수), `shift` 정수 0..5000(default 0)이다.
+
+| 선택 필드 | 타입·범위·기본값 | 사용 |
+| --- | --- | --- |
+| `stddev_multiplier` | Decimal 문자열/숫자 (0,10], 기본 "2" | Bollinger |
+| `fast_period` | integer 1..5000, 기본 12 | MACD |
+| `slow_period` | integer 1..5000, 기본 26; fast보다 커야 함 | MACD |
+| `signal_period` | integer 1..5000, 기본 9 | MACD signal/histogram |
+
+- VWAP는 rolling `Σ((high+low+close)/3 × volume) / Σvolume`; zero volume이면 null이다.
+  세션 누적 VWAP가 아니며 tick의 typical price는 trade price다. 최소 period개 관측이 필요하다.
+- Bollinger middle은 close SMA, upper/lower는 middle±multiplier×**모집단** 표준편차다. 최소 period개.
+- MACD는 각각 SMA로 seed한 fast/slow close EMA의 차이, signal은 MACD의 SMA-seeded EMA,
+  histogram은 MACD−signal이다. `period`는 MACD 계산에서 사용하지 않고 별도 fast/slow/signal을 쓴다.
+  최소 lookback은 MACD=slow, signal/histogram=slow+signal−1이다. shift는 계산하기 전 history를 자른다.
+  지표는 Decimal 계산이며 부족한 lookback은 null/available=false로 전파한다.
+  `/strategies/metadata`에 이름·파라미터·lookback·가용 시점이 제공된다.
+
+```json
+{"type":"indicator","indicator":"macd_signal","period":26,"fast_period":12,
+ "slow_period":26,"signal_period":9,"shift":0}
+```
+
+```ts
+type SessionControls = {
+  entry_start?: string | null; // HH:MM, inclusive; default null
+  entry_end?: string | null;   // HH:MM, exclusive; default null
+  weekdays?: number[];        // unique integer 0..4 (Mon..Fri), default [0,1,2,3,4]
+  flatten_at?: string | null;  // HH:MM, inclusive close-based signal; default null
+};
+// StrategyDefinition.session?: SessionControls | null (default null)
+```
+
+clock은 09:30..16:00 뉴욕 시간이고 start<end, weekdays는 1..5개다. weekday와 entry clock은
+**신호 가용 시각**에 적용한다. 체결일을 미리 보고 필터하지 않는다. flatten_at 이후 신규 진입도 막는다.
+보유 중 첫 해당 close/event에서 market exit 신호를 만들며 다음 eligible event에서만 체결한다.
+마지막 close에 신호만 생기거나 지연/거래량 상한으로 미체결일 수 있고 warnings와 실제 expired order/
+남은 포지션을 확인해야 한다. 일봉 date label은 시계가 아니므로 entry_start/end/flatten_at을 거부한다.
+일봉 weekday-only controls는 허용한다. session=null이면 기존 필터 없는 행동을 유지한다.
+
+### Tick/quote 업로드와 원격 분봉
+
+`DatasetUploadRequest.interval`, `BarRequest.interval`, `StrategyDefinition.timeframe`,
+`BacktestConfig.bar_interval` 모두 `1d|1m|5m|tick`을 지원하며 default는 기존 `1d`다.
+`source`는 `demo|snapshot|yfinance` 그대로이며 remote tick은 거부한다.
+
+틱 CSV(Parquet도 같은 컬럼/타입):
+
+```csv
+timestamp,price,size,bid,ask
+2024-01-02T09:30:00.001-05:00,100,0,99.99,100.01
+2024-01-02T09:30:00.002-05:00,100.1,5,100.09,100.11
+```
+
+- 필수 `timestamp`는 명시적 offset의 ISO 8601(Parquet aware datetime도 가능), `price`는 유한한
+  양수 Decimal 문자열/정수/숫자, `size`는 0 이상의 정수다. 입력은 unique·strictly ascending이며
+  raw 가격/거래량만 허용한다. Python datetime의 microsecond 해상도로 정규화된다.
+- `bid,ask`는 함께 생략하거나 함께 제공하며 유한 양수·bid≤ask·raw여야 한다. size=0 quote-only 이벤트를
+  허용한다. quote가 주문장 전체나 거래 가능 잔량을 뜻하지 않는다. 원격 tick API가 있다고 주장하지 않는다.
+- normalized Parquet는 기존 `instrument_id,timestamp,open,high,low,close,volume,price_adjustment,
+  volume_adjustment,timestamp_provenance`를 유지하고 tick의 OHLC=price, volume=size로 저장한다.
+  quote가 있으면 lossless Decimal `bid,ask` 컬럼을 추가하며 snapshot interval=tick,
+  timestamp_label=event로 구분한다. 원본 raw checksum과 normalized checksum을 읽을 때 검증한다.
+  기존 snapshot을 다시 쓰지 않는다. USD/America/New_York의 평일 정규장 tick만 simulation 가능하다.
+- `POST /datasets`는 기존 raw bytes upload다(multipart 아님). query에 instrument_id=NASDAQ:AAPL,
+  symbol=AAPL, exchange=NASDAQ, currency=USD, timezone=America/New_York, aware start/end,
+  price_adjustment=raw, volume_adjustment=raw, interval=tick을 보내고 헤더는
+  `Content-Type: text/csv`, `X-Filename: ticks.csv`다. Parquet는
+  `application/vnd.apache.parquet`와 `.parquet` 파일명이다. 응답 snapshot_id로 source=snapshot을 실행한다.
+- source=demo,timeframe=tick은 명시적 `synthetic_demo` 1초 간격의 합성 print 재생이다. 실제 tick이 아니다.
+- Yahoo는 pinned yfinance **1.5.1**의 explicit interval, prepost=False, auto_adjust 의미를 유지한다.
+  보수적 앱 정책은 **1m 최근 7일 / 5m 최근 60일**, end≤취득 요청 시각이며 가용성을 보장하지 않는다.
+  지원되지 않는 범위/remote tick/공급자 실패는 자동 fallback하지 않는다. 과거 저장 결과를 읽을 때
+  현재 날짜로 범위를 재검증하지 않는다.
+- 외부 open label에 1/5분을 더해 canonical close로 변환하고 요청 close 범위 `[start,end)` 및
+  `close <= acquired_at`인 확정 bar만 게시한다. upstream query start/end는 canonical 범위에서
+  duration을 뺀 값이다. lineage에 upstream_start/end, upstream_timestamp_label=open,
+  timestamp_label=close, interval, prepost, finalization_policy를 저장한다. 가격 보정은 raw 또는
+  total_return_adjusted, volume은 raw다. 소급 보정은 당시/PIT 가격이 아니다.
+
+### 제한된 현재 종목 검색
+
+`GET /research/catalog?q=Tesla`는 symbol/영문명 부분문자열을 대소문자 무시로 검색한다.
+기존 `symbols`를 유지하고 `instruments:[{symbol,name}]`,
+`listing_scope:"curated_current_not_point_in_time"`, `warnings:string[]`를 추가한다.
+결과 예시는 symbols=["TSLA"]다. 빈 q는 제한된 전체 curated 목록이며 빈 일치는 빈 배열이다.
+전체 Nasdaq·상장폐지 포함 과거 universe·거래소 시점별 분류가 아니다. QQQ도 기존 호환을 위해 포함한다.
+SimulationRequest.symbol은 이 목록의 문자열을 허용하고 universe는 NASDAQ:<symbol> 하나와 일치해야 한다.
+현재 목록: AAPL,MSFT,NVDA,AMZN,GOOGL,META,QQQ,TSLA,AVGO,COST,NFLX,AMD,ADBE,INTC,CSCO,PEP,AMGN,TXN,INTU,QCOM.
+응답에는 intervals=[1d,1m,5m,tick], remote_intervals=[1d,1m,5m],
+remote_range_days={1m:7,5m:60}, tick_timestamp_label=event, intraday_timestamp_label=close도 제공한다.
+
+새 실행 필드는 grid/walk-forward/portfolio의 전체 SimulationRequest 복사 및 config에 유지한다.
+지연/비용 baseline은 같은 snapshot에서 `spread_bps` 또는 `latency_ms`의 0과 비영 값을 grid로 비교할 수
+있다. legacy run은 raw JSON hash를 **기본값 주입 전에** 검증하며 새 Fill/Order/Summary/Event 기본값으로
+읽는다. 새 실행 JSON 조회/export에는 실제 새 설정과 비용 필드가 보존된다.
 
 ## 저장·오류·운영 제한
 

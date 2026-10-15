@@ -28,6 +28,7 @@ def build_result(state: EngineState, backtest_input: BacktestInput) -> BacktestR
         commission=state.portfolio.total_commission,
         tax=state.portfolio.total_tax,
         slippage=state.portfolio.total_slippage,
+        spread=state.portfolio.total_spread,
     )
     return BacktestResult(
         status=state.status,

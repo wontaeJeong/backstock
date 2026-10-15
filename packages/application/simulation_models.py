@@ -4,12 +4,12 @@ from typing import ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from packages.application.research_catalog import SYMBOLS
 from packages.backtest.models import BacktestConfig
 from packages.backtest.results import BacktestResult
 from packages.market_data.snapshots import SnapshotManifest
 from packages.strategy.schema import StrategyDefinition
 
-SYMBOLS = ("AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "QQQ")
 MAX_SIMULATION_BARS = 3000
 MAX_RANGE_DAYS = 3650
 
@@ -18,24 +18,30 @@ class SimulationRequest(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid", frozen=True)
 
     source: Literal["demo", "yfinance", "snapshot"]
-    symbol: Literal["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "QQQ"]
+    symbol: str = Field(min_length=1, max_length=10)
     strategy: StrategyDefinition
     initial_cash: Decimal = Field(gt=0, le=1_000_000_000, allow_inf_nan=False)
     commission_bps: Decimal = Field(default=Decimal(1), ge=0, le=100, allow_inf_nan=False)
     sell_tax_bps: Decimal = Field(default=Decimal(0), ge=0, le=100, allow_inf_nan=False)
     slippage_bps: Decimal = Field(default=Decimal(5), ge=0, le=100, allow_inf_nan=False)
+    spread_bps: Decimal = Field(default=Decimal(0), ge=0, le=100, allow_inf_nan=False)
+    latency_ms: int = Field(default=0, ge=0, le=60_000)
+    volume_participation: Decimal | None = Field(default=None, gt=0, le=1, allow_inf_nan=False)
     snapshot_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     start: datetime | None = None
     end: datetime | None = None
 
     @model_validator(mode="after")
     def validate_source(self) -> "SimulationRequest":
+        if self.symbol not in SYMBOLS:
+            message = "symbol must belong to the limited curated current Nasdaq catalog"
+            raise ValueError(message)
         if self.source == "snapshot" and self.snapshot_id is None:
             msg = "업로드 snapshot을 선택하세요."
             raise ValueError(msg)
         if self.source == "yfinance":
-            if self.strategy.timeframe != "1d":
-                msg = "Yahoo 분봉 수집은 지원하지 않습니다. 분봉 파일을 업로드하세요."
+            if self.strategy.timeframe == "tick":
+                msg = "Yahoo tick 수집은 지원하지 않습니다. tick 파일을 업로드하세요."
                 raise ValueError(msg)
             if self.start is None or self.end is None:
                 msg = "시작일과 종료일이 필요합니다."

@@ -27,6 +27,8 @@ class Side(StrEnum):
 class OrderType(StrEnum):
     MARKET = "market"
     LIMIT = "limit"
+    STOP = "stop"
+    STOP_LIMIT = "stop_limit"
 
 
 class TimeInForce(StrEnum):
@@ -84,7 +86,10 @@ class BacktestConfig(_FrozenModel):
     end_order_policy: EndOrderPolicy = EndOrderPolicy.EXPIRE
     end_position_policy: EndPositionPolicy = EndPositionPolicy.MARK_TO_LAST_CLOSE
     benchmark_instrument_id: str | None = None
-    bar_interval: Literal["1d", "1m", "5m"] = "1d"
+    bar_interval: Literal["1d", "1m", "5m", "tick"] = "1d"
+    spread_bps: Decimal = Field(default=Decimal(0), ge=0, le=100, allow_inf_nan=False)
+    latency_ms: int = Field(default=0, ge=0, le=60_000)
+    volume_participation: Decimal | None = Field(default=None, gt=0, le=1, allow_inf_nan=False)
 
 
 class OrderIntent(_FrozenModel):
@@ -94,6 +99,7 @@ class OrderIntent(_FrozenModel):
     quantity: int = Field(gt=0)
     order_type: OrderType
     limit_price: Decimal | None = Field(default=None, gt=0)
+    stop_price: Decimal | None = Field(default=None, gt=0)
     time_in_force: TimeInForce = TimeInForce.DAY
     reason: str = Field(min_length=1)
     strategy_version: str = Field(default="fixture", min_length=1)
@@ -101,11 +107,15 @@ class OrderIntent(_FrozenModel):
 
     @model_validator(mode="after")
     def limit_price_matches_order_type(self) -> "OrderIntent":
+        needs_stop = self.order_type in {OrderType.STOP, OrderType.STOP_LIMIT}
+        if needs_stop != (self.stop_price is not None):
+            message = "stop/stop_limit require stop_price; other orders forbid it"
+            raise ValueError(message)
         match self.order_type:
-            case OrderType.MARKET:
+            case OrderType.MARKET | OrderType.STOP:
                 if self.limit_price is not None:
                     raise ValueError(MARKET_LIMIT_PRICE)
-            case OrderType.LIMIT:
+            case OrderType.LIMIT | OrderType.STOP_LIMIT:
                 if self.limit_price is None:
                     raise ValueError(MISSING_LIMIT_PRICE)
         return self
@@ -126,6 +136,7 @@ class Order(_FrozenModel):
     state: OrderState = OrderState.ACCEPTED
     filled_quantity: int = Field(default=0, ge=0)
     state_reason: str = "accepted"
+    triggered_at: datetime | None = None
 
     @model_validator(mode="after")
     def filled_quantity_does_not_exceed_request(self) -> "Order":
@@ -150,6 +161,7 @@ class Fill(_FrozenModel):
     commission: Decimal = Field(ge=0)
     tax: Decimal = Field(ge=0)
     slippage: Decimal = Field(ge=0)
+    spread: Decimal = Field(default=Decimal(0), ge=0)
 
 
 class Position(_FrozenModel):
@@ -165,6 +177,7 @@ class PortfolioState(_FrozenModel):
     total_commission: Decimal = Field(default=Decimal(0), ge=0)
     total_tax: Decimal = Field(default=Decimal(0), ge=0)
     total_slippage: Decimal = Field(default=Decimal(0), ge=0)
+    total_spread: Decimal = Field(default=Decimal(0), ge=0)
 
 
 class PriceMark(_FrozenModel):
