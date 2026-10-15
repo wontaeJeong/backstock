@@ -2,12 +2,14 @@ import hashlib
 import json
 import re
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from time import monotonic
 from zoneinfo import ZoneInfo
 
 from packages.application.research_data import acquire_research_data
+from packages.application.research_store import verified_payload
+from packages.application.simulation_history import HistoryEvaluator
 from packages.application.simulation_models import (
     MAX_SIMULATION_BARS,
     SimulationMetrics,
@@ -31,10 +33,16 @@ MAX_RUN_SECONDS = 15
 
 
 class RunDeadline:
-    def __init__(self, clock: Callable[[], float] = monotonic) -> None:
+    def __init__(
+        self, clock: Callable[[], float] = monotonic, deadline: float | None = None
+    ) -> None:
         """Bound engine work cooperatively between bars, not external I/O."""
         self._clock = clock
-        self._deadline = clock() + MAX_RUN_SECONDS
+        self._deadline = (
+            min(clock() + MAX_RUN_SECONDS, deadline)
+            if deadline is not None
+            else clock() + MAX_RUN_SECONDS
+        )
 
     def should_cancel(self, processed_events: int) -> bool:
         del processed_events
@@ -47,7 +55,14 @@ class SimulationService:
         self._root = root
         self._revision = code_revision
 
-    def run(self, request: SimulationRequest) -> SimulationReport:
+    def run(
+        self,
+        request: SimulationRequest,
+        *,
+        trade_start: datetime | None = None,
+        trade_end: datetime | None = None,
+        deadline: float | None = None,
+    ) -> SimulationReport:
         manifest = acquire_research_data(self._root, request)
         if manifest.row_count > MAX_SIMULATION_BARS:
             msg = f"MVP는 실행당 {MAX_SIMULATION_BARS}개 bar까지 지원합니다."
@@ -62,6 +77,18 @@ class SimulationService:
             msg = "시뮬레이션에는 최소 2개 bar가 필요합니다."
             raise ValueError(msg)
         _validate_intraday(bars, manifest.interval)
+        history = tuple(
+            bar for bar in bars if trade_start is not None and bar.timestamp < trade_start
+        )
+        bars = tuple(
+            bar
+            for bar in bars
+            if (trade_start is None or bar.timestamp >= trade_start)
+            and (trade_end is None or bar.timestamp < trade_end)
+        )
+        if len(bars) < MIN_BARS:
+            msg = "평가 구간에는 최소 2개 bar가 필요합니다."
+            raise ValueError(msg)
         version = create_strategy_version(request.strategy)
         config = BacktestConfig(
             initial_cash=request.initial_cash,
@@ -86,8 +113,8 @@ class SimulationService:
                 strategy_version=version.version_id,
                 code_revision=self._revision,
             ),
-            DslStrategyEvaluator(request.strategy, version.version_id),
-            cancellation=RunDeadline(),
+            HistoryEvaluator(DslStrategyEvaluator(request.strategy, version.version_id), history),
+            cancellation=RunDeadline(deadline=deadline),
         )
         warnings = [
             "과거 수익률은 미래 수익을 보장하지 않습니다. 실주문 기능은 없습니다.",
@@ -99,6 +126,11 @@ class SimulationService:
             "거래소 휴장·조기폐장 calendar가 없어 데이터 완전성을 보장하지 않습니다. "
             "누락을 채우지 않습니다.",
         ]
+        if trade_start is not None or trade_end is not None:
+            warnings.append(
+                f"Evaluation range: {bars[0].timestamp.isoformat()} .. "
+                f"{bars[-1].timestamp.isoformat()}; warmup bars={len(history)}; fresh capital."
+            )
         if manifest.provider == "synthetic_demo":
             warnings.insert(
                 0, "합성 데모 데이터입니다. 실제 나스닥 과거 시세나 투자 성과가 아닙니다."
@@ -152,11 +184,8 @@ class SimulationService:
         path = self._root / "runs" / f"{run_id}.json"
         if not path.is_file():
             return None
-        report = SimulationReport.model_validate_json(path.read_bytes())
-        if report.run_id != run_id or _report_hash(report) != run_id:
-            msg = "저장된 실행 결과의 무결성 검증에 실패했습니다."
-            raise ValueError(msg)
-        return report
+        payload = verified_payload(path, run_id, "run_id")
+        return SimulationReport.model_validate(payload)
 
 
 def _report_hash(report: SimulationReport) -> str:

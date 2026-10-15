@@ -7,6 +7,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from apps.api.datasets import build_dataset_router
 from apps.api.middleware import RequestContextMiddleware, request_id_context
+from apps.api.research import build_research_router
 from apps.api.schemas import ErrorResponse, HealthResponse
 from apps.api.simulations import build_simulation_router, source_revision
 from apps.api.strategies import build_strategy_router
@@ -117,11 +118,13 @@ def create_app(
     )
     app.include_router(build_dataset_router(resolved_dataset_service, resolved_settings))
     app.include_router(build_strategy_router())
-    app.include_router(
-        build_simulation_router(
-            SimulationService(resolved_settings.data_storage_path, code_revision=source_revision())
-        )
+    simulation_service = SimulationService(
+        resolved_settings.data_storage_path, code_revision=source_revision()
     )
+    app.include_router(
+        build_research_router(resolved_settings.data_storage_path, simulation_service)
+    )
+    app.include_router(build_simulation_router(simulation_service))
     app.add_exception_handler(StarletteHTTPException, api_exception_handler)
     app.add_exception_handler(RequestValidationError, api_exception_handler)
     app.add_exception_handler(DatasetInvalidError, api_exception_handler)

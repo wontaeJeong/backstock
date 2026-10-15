@@ -110,3 +110,18 @@ Validation:
   부분 JSON/Parquet를 성공 결과로 읽지 않게 한다.
 - CI는 실제 DB·컨테이너·브라우저를 검증한다. 운영 배포 대상이 없어 CD는 수동 artifact 발행까지이며
   공개 운영 전 인증·quota·백업과 공급망 정책이 필요하다. 새 PR은 별도 승인 없이 병합하지 않는다.
+
+## 2026-10-16 연구 확장 — 보관함·분석·실험
+
+- 기존 filesystem authority를 유지해 전략 record/실험을 content-addressed write-once JSON으로
+  보존한다. archive는 원본을 수정하지 않는 atomic sidecar 상태다. DB migration은 없다.
+- 분석은 FIFO matched lot 기준이며 열린 lot을 승률에서 제외한다. 일/월 수익률은 뉴욕 날짜의
+  마지막 관측 equity, volatility/Sharpe/Sortino는 252일 관례를 쓴다. CAGR은 평가 구간 실제
+  경과일을 쓰고 하루 미만은 정의하지 않는다. null 이유와 계산식을 API에 포함한다.
+- walk-forward는 rolling train→test, 학습 total return 선택/동률 입력 순서다. 각 test는 새 자본과
+  evaluator로 시작하며 사전 history는 지표 warmup에만 쓴다. OOS 복리 계좌를 가장하지 않는다.
+- 포트폴리오는 독립 고정 예산이고 비할당 자금은 현금이다. 공통 timestamp만 합치며 실패한
+  component가 있으면 합계/상관계수를 제공하지 않는다. demo 상관을 시장 분산효과로 보지 않는다.
+- 연구 API는 64 KiB body·동시 2개 threadpool·실험 30초 cooperative 계산 예산을 사용한다.
+  공급자 I/O는 별도 timeout이므로 HTTP wall time 30초 보장은 아니다.
+- 상세 wire 계약·경로 allowlist·분모·제한은 `docs/reference/research-features-api.md`에 기록한다.
