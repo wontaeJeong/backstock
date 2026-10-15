@@ -256,8 +256,15 @@ type PortfolioExperiment = {
 위 예시의 실제 budget은 250/500, reserve_cash는 250이다. 각 request.initial_cash 대신
 전체 원금×weight를 쓰며, 현금 공유·재투자·재조정 없이 실제 엔진을 독립 실행한다.
 2..5개, 비중은 양수이고 합계≤1이다. 공통 timestamp의 실제 equity 합계+reserve만 반환하고
-각 실행별 제외 timestamp 수를 보존한다. 공통 per-bar 수익률 Pearson 상관계수는 관측 2개 미만/
-분산 0이면 null/reason이다. 동일 demo 가격 패턴 경고를 반드시 표시한다.
+각 실행별 제외 timestamp 수를 보존한다. 상관계수는 **공통 daily equity 수익률**의 Pearson 계수다.
+먼저 모든 component의 공통 timestamp를 찾고, America/New_York 날짜별 **마지막 공통 timestamp**를
+선택해 그 동일 시점의 equity로 일간 수익률(비율, `%` 아님)을 계산한다. 각 component의 마지막
+시점을 독립 선택해 서로 다른 시각을 짝짓지 않는다. 빠진 날짜는 채우지 않고, 마지막 공통 일간
+평가액 사이에서만 수익률을 계산한다. `observations`는 실제 공통 daily 수익률 개수(선택한 날짜 수−1,
+최소 0)다. 따라서 한 세션에 분봉이 많아도 observations는 0이며 계수는 null이다.
+공통 daily 수익률 2개 미만/한쪽 분산 0/비유한 통계값이면 null/reason이다. 금액은 Decimal로 유지하고
+통계 계산에만 float를 사용한다. 유한한 무단위 계수만 Decimal 문자열로 반환한다.
+포트폴리오 curve는 여전히 모든 공통 timestamp를 보존한다. 동일 demo 가격 패턴 경고를 반드시 표시한다.
 실패한 component가 있으면 curve와 correlations 모두 비운다. 실패 예산을 무손실 현금으로 가장하지 않는다.
 
 ## 저장·오류·운영 제한

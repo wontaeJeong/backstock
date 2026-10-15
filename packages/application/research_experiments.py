@@ -1,10 +1,12 @@
 import itertools
+import math
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from statistics import correlation
 from time import monotonic
+from zoneinfo import ZoneInfo
 
 from pydantic import TypeAdapter
 
@@ -253,7 +255,8 @@ class ResearchExperiments:
             *WARNINGS,
             "Fixed independent budgets, no rebalancing or cross-component cash sharing.",
             "Common timestamps only, no forward fill. "
-            "Correlations use aligned per-bar equity returns.",
+            "Correlations use daily equity returns between the last common timestamps "
+            "per America/New_York date; observations count common daily returns.",
         ]
         if any(r.manifest.provider == "synthetic_demo" for r in reports):
             warnings.append(
@@ -283,27 +286,43 @@ class ResearchExperiments:
 def _correlations(
     curves: list[dict[datetime, Decimal]], common: list[datetime]
 ) -> list[Correlation]:
+    daily_marks: dict[date, datetime] = {}
+    zone = ZoneInfo("America/New_York")
+    for timestamp in sorted(common):
+        daily_marks[timestamp.astimezone(zone).date()] = timestamp
     returns = [
-        [float(curve[b] / curve[a] - 1) for a, b in itertools.pairwise(common)] for curve in curves
+        [float(curve[b] / curve[a] - 1) for a, b in itertools.pairwise(daily_marks.values())]
+        for curve in curves
     ]
     results: list[Correlation] = []
     for left in range(len(returns)):
         for right in range(left + 1, len(returns)):
             value = None
-            reason = "fewer than 2 common returns or zero variance"
-            if (
+            reason = "fewer than 2 common daily returns or zero variance"
+            finite = all(
+                math.isfinite(value)
+                for series in (returns[left], returns[right])
+                for value in series
+            )
+            if not finite:
+                reason = "non-finite common daily returns"
+            elif (
                 len(returns[left]) >= MIN_CORRELATION_RETURNS
                 and len(set(returns[left])) > 1
                 and len(set(returns[right])) > 1
             ):
-                value = Decimal(str(correlation(returns[left], returns[right])))
+                coefficient = correlation(returns[left], returns[right])
+                if math.isfinite(coefficient):
+                    value = Decimal(str(coefficient))
+                else:
+                    reason = "non-finite daily correlation"
             results.append(
                 Correlation(
                     left=left,
                     right=right,
                     value=value,
                     reason=reason if value is None else None,
-                    observations=max(0, len(common) - 1),
+                    observations=max(0, len(daily_marks) - 1),
                 )
             )
     return results
