@@ -2,6 +2,7 @@
 
 import { type ChangeEvent, type FormEvent, useLayoutEffect, useState } from "react"
 import { z } from "zod"
+import { apiErrorMessage } from "../../lib/api-error"
 import {
   buildRequest,
   buildStrategy,
@@ -16,15 +17,21 @@ import { DataControls } from "./data-controls"
 import { ResultView } from "./result-view"
 import { RuleBuilder } from "./rule-builder"
 
+function focusInMain(target: HTMLElement | null) {
+  const main = target?.closest("main")
+  if (!target || !main) return
+  target.focus({ preventScroll: true })
+  main.scrollTo({
+    top:
+      main.scrollTop + target.getBoundingClientRect().top - main.getBoundingClientRect().top - 16,
+    behavior: "instant",
+  })
+}
+
 async function responseJson(response: Response): Promise<unknown> {
   const data: unknown = await response.json()
   if (!response.ok) {
-    const message = z.object({ message: z.string() }).safeParse(data)
-    throw new Error(
-      message.success
-        ? message.data.message
-        : "요청에 실패했습니다. 입력값과 서버 상태를 확인하세요.",
-    )
+    throw new Error(apiErrorMessage(data, response.status))
   }
   return data
 }
@@ -35,26 +42,19 @@ export function ResearchWorkspace() {
   const [adjustment, setAdjustment] = useState<"raw" | "total_return_adjusted">("raw")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
+  const [failureId, setFailureId] = useState(0)
+  const [failedAttempt, setFailedAttempt] = useState(false)
   const [report, setReport] = useState<SimulationReport>()
   const [history, setHistory] = useState<SimulationReport[]>([])
   const [signature, setSignature] = useState("")
   const [restoreId, setRestoreId] = useState("")
   useLayoutEffect(() => {
     if (!report) return
-    const heading = document.getElementById("result-title")
-    const main = heading?.closest("main")
-    if (heading && main) {
-      heading.focus({ preventScroll: true })
-      main.scrollTo({
-        top:
-          main.scrollTop +
-          heading.getBoundingClientRect().top -
-          main.getBoundingClientRect().top -
-          16,
-        behavior: "instant",
-      })
-    }
+    focusInMain(document.getElementById("result-title"))
   }, [report])
+  useLayoutEffect(() => {
+    if (error && !busy && failureId > 0) focusInMain(document.getElementById("execution-error"))
+  }, [error, busy, failureId])
   const fingerprint = JSON.stringify({ draft, snapshotId })
   const update = <K extends keyof Draft>(key: K, value: Draft[K]) => {
     setDraft((previous) => ({ ...previous, [key]: value }))
@@ -63,12 +63,19 @@ export function ResearchWorkspace() {
   }
 
   function showResult(next: SimulationReport, nextSignature: string) {
+    setFailedAttempt(false)
     setReport(next)
     setSignature(nextSignature)
     if (next.result.status === "succeeded")
       setHistory((previous) =>
         [next, ...previous.filter((item) => item.run_id !== next.run_id)].slice(0, 5),
       )
+  }
+
+  function showError(message: string) {
+    setError(message)
+    setFailureId((previous) => previous + 1)
+    setFailedAttempt(true)
   }
 
   async function run(demo = false) {
@@ -86,7 +93,7 @@ export function ResearchWorkspace() {
       const next = simulationReportSchema.parse(await responseJson(response))
       showResult(next, JSON.stringify({ draft: chosen, snapshotId }))
     } catch (failure) {
-      setError(
+      showError(
         failure instanceof z.ZodError
           ? "숫자·조건 입력값 또는 API 응답 형식을 확인하세요. 잘못된 결과는 표시하지 않습니다."
           : failure instanceof Error
@@ -104,7 +111,7 @@ export function ResearchWorkspace() {
     setSnapshotId(undefined)
     setError("")
     if (file.size > 25 * 1024 * 1024) {
-      setError("파일은 25 MiB 이하여야 합니다.")
+      showError("파일은 25 MiB 이하여야 합니다.")
       return
     }
     setBusy(true)
@@ -136,7 +143,7 @@ export function ResearchWorkspace() {
         .parse(await responseJson(response))
       setSnapshotId(data.snapshot_id)
     } catch (failure) {
-      setError(
+      showError(
         failure instanceof Error && !(failure instanceof z.ZodError)
           ? failure.message
           : "파일 검증에 실패했습니다. 컬럼·시간대·주기·기간을 확인하세요.",
@@ -149,7 +156,7 @@ export function ResearchWorkspace() {
 
   async function restore() {
     if (!/^[a-f0-9]{64}$/.test(restoreId)) {
-      setError("64자리 실행 ID를 입력하세요.")
+      showError("64자리 실행 ID를 입력하세요.")
       return
     }
     setBusy(true)
@@ -158,7 +165,7 @@ export function ResearchWorkspace() {
       const response = await fetch(`/api/research/simulations/${restoreId}`)
       showResult(simulationReportSchema.parse(await responseJson(response)), "restored")
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : "실행 결과를 불러오지 못했습니다.")
+      showError(failure instanceof Error ? failure.message : "실행 결과를 불러오지 못했습니다.")
     } finally {
       setBusy(false)
     }
@@ -193,10 +200,17 @@ export function ResearchWorkspace() {
         체결 지연은 검증하지 않습니다.
       </p>
       {error && (
-        <div className="error-notice" role="alert">
+        <div className="error-notice" id="execution-error" role="alert" tabIndex={-1}>
           <strong>실행하지 못했습니다.</strong>
           <p>{error}</p>
           <p>입력은 보존되어 있습니다. 설정을 확인한 뒤 다시 시도하세요.</p>
+          <ActionButton
+            onClick={() =>
+              focusInMain(document.querySelector<HTMLElement>("#strategy-editor select"))
+            }
+          >
+            입력 다시 확인
+          </ActionButton>
         </div>
       )}
       {busy && (
@@ -365,6 +379,7 @@ export function ResearchWorkspace() {
               report={report}
               history={history}
               stale={signature !== fingerprint}
+              failedAttempt={failedAttempt}
             />
           ) : (
             <section className="empty-result">

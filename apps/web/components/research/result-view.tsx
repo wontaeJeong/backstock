@@ -31,10 +31,12 @@ export function ResultView({
   report,
   history,
   stale,
+  failedAttempt,
 }: {
   report: SimulationReport
   history: SimulationReport[]
   stale: boolean
+  failedAttempt: boolean
 }) {
   const [page, setPage] = useState(0)
   const [orderPage, setOrderPage] = useState(0)
@@ -57,11 +59,24 @@ export function ResultView({
           </h2>
         </div>
         <StatusBadge
-          label={report.result.status === "succeeded" ? "계산 완료" : "실행 미완료"}
-          tone={report.result.status === "succeeded" ? "success" : "error"}
+          label={
+            failedAttempt
+              ? "이전 실행 결과"
+              : report.result.status === "succeeded"
+                ? "계산 완료"
+                : "실행 미완료"
+          }
+          tone={
+            failedAttempt ? "warning" : report.result.status === "succeeded" ? "success" : "error"
+          }
         />
       </header>
-      {stale && (
+      {failedAttempt && (
+        <p className="notice" role="status">
+          최근 요청은 실패했습니다. 아래는 이전에 완료한 실행 결과이며 최근 요청의 결과가 아닙니다.
+        </p>
+      )}
+      {stale && !failedAttempt && (
         <p className="notice" role="status">
           설정이 변경되었습니다. 아래는 이전 실행 결과입니다. 다시 실행하면 새 설정을 반영합니다.
         </p>

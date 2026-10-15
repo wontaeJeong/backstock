@@ -16,11 +16,12 @@ Mac ARM64 / Python 3.12.12 / Node 24.16.0 / pnpm 11.1.2.
 | --- | --- |
 | frozen uv/pnpm 설치 | 성공 |
 | Ruff check / format --check | 통과 |
-| mypy | 103개 Python 소스 통과 |
-| pytest | 166개 통과 |
+| mypy | 104개 Python 소스 통과 |
+| pytest | 167개 통과 |
 | pnpm lint / typecheck / test | 통과, 웹 unit 7개 |
 | pnpm build | production standalone 성공 |
-| production Playwright | Chromium 1440px/390px 총 10개 통과 |
+| wheel 설치 smoke | checkout과 격리하여 import·소스 content revision 동일성 확인 |
+| production Playwright | Chromium 1440px/390px 총 16개 통과 |
 | 실제 Yahoo acquisition | AAPL, `[2024-01-01, 2024-02-01)`, 21개 일봉 snapshot 및 engine succeeded |
 | Docker images | API/migration/worker/web 모두 build 성공 |
 | production Compose | migration 성공 후 stack 기동, web→API filesystem readiness 통과 |
@@ -32,7 +33,9 @@ Docker의 최초 포트 18000은 다른 프로젝트가 사용 중이어서 해�
 28000/23000으로 변경했다. 이미지 build와 stack 기동을 한 명령으로 실행한 검증은 120초에
 시간 제한되었으나, build 성공을 확인하고 별도 stack/시뮬레이션 검사로 완료했다.
 Yahoo smoke는 외부 네트워크에 의존하므로 CI에 강제하지 않고 offline fixture를 별도로 검증한다.
-원격 GitHub CI와 수동 이미지 발행은 이 로컬 결과와 구분한다. 이미지 발행 workflow는 실행하지 않았다.
+원격 GitHub CI run `38772615566`도 backend(50초), frontend(39초), compose(1분), e2e(1분17초)
+모두 통과했다(`eadb02f`). 이 결과와 수동 이미지 발행은 구분하며 이미지 발행 workflow는 실행하지 않았다.
+리뷰 수정 이후 head의 CI 결과는 PR checks에서 별도로 확인한다.
 
 ## UX 실측
 
@@ -60,3 +63,20 @@ region을 확인했다. 상세 근거는 기본 접기, 긴 행은 25건 단위 
 - 부분 파일이 노출되던 immutable 게시: atomic no-replace 게시로 보완.
 - 결과 무결성·전략 hash·snapshot checksum, 비용으로 순손익이 감소하되 slippage 이중 차감하지 않음.
 - 초단타 한계 표시, 실패 시 입력 보존 및 가짜 0%/합성 fallback 금지, 설정 변경 시 이전 결과 구분.
+
+## 독립 리뷰와 수정 검증
+
+독립 리뷰는 Critical 0개, Important 2개, Minor 2개를 보고했다. 유효한 큰 원금의 축 잘림과
+비개발자가 이해할 수 없는 파일 오류도 실제 사용성 요구에 해당하므로 네 항목 모두 수정했다.
+두 번째 리뷰 대신 각 재현 테스트의 실패→수정→통과와 전체 회귀 검증을 수행했다.
+
+- 실패 알림이 모바일에서 약 2,060px 위에 숨어 있던 문제: 실패 후 알림을 viewport 안으로 이동하고
+  포커스를 부여한다. 키보드로 입력 화면으로 돌아갈 수 있으며 재실행 실패는 이전 성공 결과와 구분한다.
+- 업로드가 event loop에서 동기 처리되던 문제: 파일 쓰기·정규화·검증·게시를 thread pool로 분리하고
+  작업이 끝날 때까지 임시 파일 수명을 보존한다. 활성 업로드와 동시 health 응답을 회귀 테스트한다.
+  23,000,037 bytes/50만 중복 행 실측에서도 업로드 처리 중 health는 200, 약 0.0014초였고
+  잘못된 업로드는 422로 거부됐다. 이는 가용성 smoke이며 일반적인 처리 속도 보장이 아니다.
+- 파일 검증의 구조화된 issue code를 한국어로 설명하고 날짜 형식·중복·기간 초과 등을 구분한다.
+  원본 파일의 비공개 입력값을 오류 안내에 재출력하지 않는다.
+- 10억 USD 원금의 축 글자가 viewBox 왼쪽 약 20.48px 밖으로 잘리던 문제: 숫자 길이에 따라
+  축 여백과 그래프 폭을 조정한다. 실제 SVG 글자 14px 이상뿐 아니라 모든 label의 bounds도 검사한다.
