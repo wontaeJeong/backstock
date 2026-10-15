@@ -25,6 +25,17 @@
   normalized checksum: `sha256:e949d5a7ccf6d6cb2fe3a9fedb19ab8a5e8b725e47c1ef57a8536fc3234a20df`.
   이 일회성 외부 가용성 관찰은 향후 Yahoo 가용성을 보장하지 않으며 offline fixture와 구분한다.
 
+## 수동 가상매매 backend (Task 3)
+
+- 구현 보고 기준 Python337(paper26), Ruff/format/mypy131 통과. 계좌/후보/승인/거절/취소,
+  수동 시세 평가·내부 대사·kill switch·영속 idempotency와 감사 구현. backend 독립 리뷰 통과,
+  웹 POST→GET 최신 상태 갱신은 최종 통합에서 확인한다.
+- controller 실제 HTTP/store smoke: 초기1000, 제안 후 현금1000, 2주@참조가100 승인(기본1/0/5bps)
+  후 현금799.87999. 동일 승인 retry에도 fill1개, 수동 mark120 후 equity1039.87999와 동일 현금,
+  내부 대사 consistent=true, kill 활성 후 신규 제안409/KILL_SWITCH를 확인했다.
+- 실제 broker/시세를 사용하지 않았고 수동 과거/시나리오 입력이다. 모든 POST 후 UI는 현재 계좌를
+  다시 조회해 저장된 과거 idempotency 응답이 최신 상태로 오인되지 않게 해야 한다.
+
 ## 유지할 해석 제한
 
 실제 broker/실시간 feed·queue·부분 체결·시장 충격·완전한 거래소 calendar/기업 이벤트 원장/PIT
