@@ -127,3 +127,97 @@ SVG는 축소하지 않고 내부 스크롤하며, 표도 모바일에 압축하
 6. 초기 전체 UI 그룹 각각의 최초 RED 로그는 분리되지 않았다(위 TDD 기록 참조). 현재 기능 그룹 모두
    실제 API/engine E2E에 포함되지만 모든 제어 조합·브라우저 종류를 exhaustive 검증했다는 뜻은 아니다.
 7. 원격 CI/독립 전체 브랜치 리뷰/PR/merge는 이 subagent가 실행하지 않았다. controller가 이어서 수행한다.
+
+---
+
+## Scoped review 수정 1/5 — 기준 `64e24ee`
+
+**DONE** — I1/I2/I3/I4와 Important로 재분류된 M1을 수정했다.
+구현 커밋: **`fe68939`** (`fix(web): isolate research results and complete sizing and paper controls`).
+이 절은 위의 기본 sizing/risk/요일 JSON 전용 제한(제한 1번)을 **대체**한다. 기본 설정을 JSON으로
+작성해야 하는 상태를 완료로 재분류하지 않았다. 임의 중첩 조건의 시각적 역변환만 여전히 범위 밖이다.
+
+### Finding별 RED → GREEN
+
+| Finding | 관측한 실제 RED | 수정 및 GREEN 근거 |
+| --- | --- | --- |
+| I1 | A→B analysis/bars 실패 전환 직후 `A_ONLY_METRIC`이 남음. 늦은 A 응답이 B 뒤에 `LATE_A_METRIC`으로 표시됨 | `AnalysisPanel`의 run+snapshot keyed 소유자를 동기적으로 교체한다. 분석·가격을 함께 검증/게시하며 응답 run_id/snapshot_id 불일치는 오류로 처리한다. 새 로딩/실패에서는 기존 통계·CSV·replay를 숨긴다. 요청 sequence는 늦은 이전 결과를 버린다. unit의 즉시 rerender/409/bars failure/late A/wrong-ID 및 실제 API 기반 브라우저 409·late 응답 회귀 통과 |
+| I2 | fixed quantity 입력인데 생성 결과가 `percent_equity`였음. 가져온 JSON에서 빈 notional 폼을 이전 JSON으로 대신 실행함. % 모드의 숨겨진 잘못된 ATR 기간이 실행을 막음 | 한국어 fixed quantity/notional/percent equity/ATR risk 폼, %/ATR 손절·익절·추적 손절과 유효 기간/배수, 진입 요일 GUI를 구현했다. 현재 폼은 실행·저장·실험의 같은 정의에 연결된다. 가져온 정의는 해당 설정 분기만 갱신하며 중첩 AST·다른 risk·session·Decimal을 보존한다. 불완전 폼은 오류로 막고 예전 JSON으로 실행하지 않는다. ATR 기간은 ATR 모드에서 필수다. 실제 엔진 네 가지 sizing 및 모든 ATR risk 요청·import/form roundtrip E2E와 unit 통과 |
+| I3 | 정상 pending 26건 계좌에 “후보 다음 25개”가 없어서 첫 후보 작업에 접근할 수 없음 | action-bearing 목록 전체에 25건 페이지·검색·안정적인 order_id를 적용하고 종료/검색 이후 페이지를 보정한다. 실제 API로 26개 후보를 만든 뒤 kill ON에서 26번째 이전 후보를 취소하고 POST→current GET·cash 1000 불변·cancelled를 확인했다. pending 검색 26→25에서 page 2→1 보정도 검증 |
+| I4 | source=snapshot / manifest.provider=yfinance인 실제 컴포넌트가 “사용자 파일 · 시세 출처 미검증”을 표시함 | `lib/provenance.ts`에 synthetic_demo/yfinance/local_file/unknown 분류를 중앙화하고 분석·기존 결과 화면이 같이 사용한다. snapshot 재사용은 별도 표시다. Yahoo reuse·local·unknown unit 및 기존 업로드/demo 실제 E2E 통과. unknown을 Yahoo로 추정하지 않음 |
+| M1 (Important) | 검색 버튼을 누르기 전 “Tesla” 입력만으로 GET이 1→2회 발생하고 입력을 잠금 | 편집 q와 submitted q 분리. Enter/검색 버튼만 제출하고 검색 input·scope 선택은 fetch 중에도 편집 가능하다. 페이지는 제출 조건을 유지한다. scope+sequence 소유권으로 늦은 검색/이전 종류 결과를 버린다. unit 및 지연 실제 브라우저 요청에서 GET 목록 `['', 'Tesla', 'TeslaX']`·로딩 중 입력 보존·추가 글자별 GET 없음 검증 |
+
+추가 소유권 검증: QQQ는 기준 실행+QQQ snapshot 선택에 묶고 선택 변경 즉시 숨긴다. 비교는 정렬된
+선택 run ID 집합에 묶고 response rows의 실제 ID도 확인한다. 늦은 이전 비교가 적용되지 않는 unit이 있다.
+paper 계좌 선택이 바뀌면 기존 계좌를 즉시 숨기고, GET/POST 후 current GET의 실제 account_id와 현재
+선택이 일치할 때만 적용한다. 계좌 전환/늦은 이전 GET unit도 통과했다. 보관함 종류 변경 뒤 이전 객체를
+새 종류의 action 대상으로 사용하지 않는 회귀도 있다. `useOperation`의 busy/error는 최신 작업만 소유한다.
+
+### 안전·정확성 보존
+
+- 금융 계산은 서버에만 있다. 추가 클라이언트 처리는 폼 입력 검증과 %↔비율의 **문자열 자릿수 이동**뿐이다.
+  notional/risk 배수·값을 binary float로 다시 직렬화하지 않는다.
+- 기존 percent-equity 기본값과 기존 한국어 기본 라벨을 유지했다. 새 기본 설정은 raw DSL 작성이 필요 없다.
+  고급 JSON의 미지원 중첩 조건은 그대로 두면서 sizing/risk/session 폼을 사용할 수 있다.
+- response passthrough·전체 JSON·CSV proxy/header·same-origin·null/실패 구분·paper 모든 POST 뒤 current GET·
+  create 자동 retry 없음은 유지했다. Task 3 fee-policy minor와 backend 경제 규칙/계약은 수정하지 않았다.
+- README, `docs/assumptions.md`, `docs/reference/research-feature-matrix.md`, API reference를 갱신했다.
+
+### 최종 실제 검증
+
+| 명령 | 결과 |
+| --- | --- |
+| `uv run ruff check .` | 통과 |
+| `uv run ruff format --check .` | 133 files, 통과 |
+| `uv run mypy .` | 133 source files, 통과 |
+| `uv run pytest` | **343 passed**, 18.55s (backend 변경 없음) |
+| `pnpm lint` | **52 files**, diagnostic 없이 통과 |
+| `pnpm typecheck` | 통과 |
+| `pnpm test` | **5 files / 33 passed** (기존 17 + 새 회귀 16) |
+| `pnpm build` | production build 통과 |
+| `CI=1 pnpm exec playwright test` | **52 passed**, 약 1.2m. 기존 40 + 새 12 viewport 실행, 실제 production server+API |
+| `git diff --check` | 통과 |
+
+신규 브라우저 테스트: `tests/e2e/task4-review.spec.ts`. 마지막 전체 실행에는 숨겨진 % 모드 ATR 기간
+회귀 수정까지 포함한다. 초기 집중 브라우저 10개 실행에서 mobile import test가 파일 읽기 완료 전에
+다음 폼 편집을 시작해 timeout 1개가 발생했다. 기존 import 완료 status를 기다리도록 테스트 동기화를
+수정했으며 timeout 증가/skip/경제 값 변경 없이 이후 전체 52개가 반복 통과했다.
+I1 브라우저 회귀의 A/B는 실제 엔진 생성 artifact이며, 보관함 목록만 그 실제 응답으로 제한했다.
+409와 지연은 browser route에서 의도적으로 주입한 네트워크 경계 테스트다. 서버 파일을 실제 손상시킨
+브라우저 테스트나 Yahoo 현재 네트워크 smoke로 주장하지 않는다. I3의 26개 후보와 취소/GET은 실제 API다.
+
+### 실제 390/1440 레이아웃
+
+스크린샷(`sizing-risk-controls.png`, `pending-pages-kill.png`)과 DOM 수치를 실제 읽었다.
+분석 화면 SVG·표·키보드·오류 focus 검증도 기존 E2E에서 다시 수행했다.
+
+| 측정 | 390px | 1440px |
+| --- | --- | --- |
+| 문서 가로 폭 | 390px | 1440px |
+| 수량/risk 폼 input/select 실제 글자 | 14–16px | 14–16px |
+| risk와 JSON을 사용자가 펼친 편집 흐름 main 길이 | 6483px | 4904px |
+| 작업 가능한 후보 페이지 | 25건 | 25건 |
+| 후보 card 행 높이 | 230.56px | 182.58px |
+| 기본 분석 main 길이 | 3367px | 2626px |
+| 핵심 수치 viewport y | 464.80px | 277.06px |
+| 기존 분석 실제 SVG 글자/경계 | 16px, x≥20/end≤793.46 of 900 | 동일 |
+| 원본 OHLC 표 viewport/content 폭 | 330/1680px | 1084/1680px |
+
+6483px는 모든 risk와 고급 JSON을 **직접 펼친** 편집 상태의 길이다. 기본 분석을 길게 펼치거나 표를
+압축해 숫자를 줄인 것이 아니다. 기본 legacy 실행 E2E의 main<6000 조건도 그대로 통과했다.
+
+### Controller에게 남기는 문서 갱신 안내
+
+`docs/feature-matrix.md`는 **읽기만 했고 수정·stage하지 않았다**. 확인한 SHA256은
+`a4ac65fa7475df1292e5d006b5bdf655df54ae7c04448d954171d7691326d559`로 작업 중 동일했다.
+controller가 자신의 미커밋 문서 변경에 아래를 반영하면 된다:
+
+- **23–24행**: fixed 수량/금액·ATR sizing·trailing/ATR risk·요일을 “JSON 전용”으로 묶은 제한을 제거하고,
+  한국어 기본 폼 및 import 이후 해당 분기만 수정함을 명시. 임의 중첩 조건의 고급 JSON 제한만 남김.
+- **10행**: 네 가지 sizing와 %/ATR risk·기간/배수·요일 GUI 및 실제 엔진 요청/import 회귀를 추가.
+- **11–13행**: snapshot 원래 provider 분류·unknown 미추정, 제출 검색/페이지 scope, 분석 run/snapshot identity
+  및 지연/실패 전환 회귀 근거를 추가할 수 있음.
+- **21행**: 모든 후보에 대한 25건 작업 페이지/검색과 실제 26번째 이전 후보의 kill 상태 취소+current GET 근거 추가.
+
+이 round에 미해결로 남겨 둔 I1–I4/M1 기능 항목은 없다. 최종 독립 whole-branch review·원격 CI·PR/merge와
+기존 Task 3 minor triage는 여전히 controller 담당이다. 새 worktree/branch/subagent·push/merge는 수행하지 않았다.
