@@ -2,8 +2,9 @@
 
 ## 현재 상태
 
-기능별 backend와 web 통합을 분리해 검증했다. 각 task의 구현과 집중 재리뷰를 마쳤으며 최종
-전체 브랜치 리뷰·원격 CI·머지는 별도 단계다. 자세한 기능/제한은
+기능별 backend와 web 통합을 분리해 검증했다. 각 task와 전체 브랜치의 독립 리뷰 및 정확성
+수정 재리뷰를 마쳤다. 최종 수정 head의 원격 CI·승인된 머지 상태는
+[PR #3](https://github.com/wontaeJeong/backstock/pull/3)에서 확인한다. 자세한 기능/제한은
 [기능 매트릭스](../reference/research-feature-matrix.md)를 따른다.
 
 ## 연구 backend (Task 1)
@@ -55,6 +56,24 @@
 - controller Linux 컨테이너: API/worker build·migration·health, tick engine18개 분석통계·전략 저장,
   실제 grid2개, paper 제안/승인/정확 retry/내부 대사 HTTP smoke 통과. UI 수정 중 backend만 검증한
   것으로 최종 production web 이미지 검증과 구분한다.
+
+## 전체 브랜치 최종 검증과 수정
+
+- 최초 통합 source `25a9541`에서 controller가 Python343/웹52/production E2E54와 모든 lint/type/build를
+  직접 통과시켰고 원격 CI run38802577096의 backend/frontend/compose/e2e도 전부 통과했다.
+  이 근거만으로 리뷰에서 발견한 새로운 경로까지 통과했다고 주장하지 않았다.
+- 전체 브랜치 리뷰에서 I1 장중 limit/stop-limit 체결의 open 소급 시각, I2 활성 risk의 빈 값이 조용히
+  null로 바뀌는 문제, M1 가져온 실제 주문과 disabled 기본 표시 불일치를 발견했다. 수정 `59254e1`은
+  open/range 가격 관측 시점을 함께 전달하고, 활성 risk 값은 필수이며 off만 null로 처리하고,
+  JSON 주문 표시는 실제 원본으로 한다. scoped 최종 재리뷰에서 세 건 모두 addressed, 추가 blocker 없음.
+- 수정 구현자 최종 전체 검증: **Python393**, **웹 unit76**, **production E2E62**(390/1440),
+  Ruff/format/mypy134·lint/type/build 통과. 추가 Python50개는 양방향 LIMIT/STOP_LIMIT/시간/비용과
+  engine→event/CSV/holding/replay, 추가 unit24개와 browser8개는 활성 risk·복구·원본 주문 표시를 검사한다.
+- 기존 API 편의성 `fold.error=null`은 UI nested 원인을 표시하므로 비차단이다. 내부 paper 대사는
+  기록된 fee까지 함께 일관되게 위조한 모델의 fee 정책을 독립 재계산하지 않는다. 정상 승인 경로와
+  content-addressed 저장 보호는 유지되며, 이를 외부 broker/서명/수수료 정책 검증이라고 주장하지 않는다.
+- 최종 새 head의 추가 CI 결과·merge commit은 PR에 별도로 남긴다. 수동 image publish workflow나
+  실제 주문/credential/외부 배포는 실행하지 않았다.
 
 ## 유지할 해석 제한
 

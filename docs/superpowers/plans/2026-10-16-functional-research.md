@@ -79,4 +79,4 @@ Required API:
 - [x] RED unit and E2E for every feature group, input preservation/failure viewport, reload/library versions and API errors.
 - [x] Implement Korean accessible controls with 25-row pages and readable min14px chart/table regions; no decorative dead controls.
 - [x] Full required lint/type/unit/Python/production build/E2E at390/1440, real engine fixture flows, contract regressions and precise feature/limit matrix.
-- [ ] Commit/report; independent whole-branch review, fix covering tests, remote CI then PR merge (already authorized).
+- [x] Commit/report; independent whole-branch review and scoped fix review, covering tests, PR #3 created. Controller completes new-head remote CI and already-authorized merge; authoritative final state is PR #3.
